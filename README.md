@@ -124,7 +124,6 @@ FixMyStreet/
 │   ├── server.js                 # API Entry Point
 │   ├── package.json
 │   └── .env.example
-├── VIVA_GUIDE.md                 # Viva Q&A & Code Walkthrough Guide
 ├── .gitignore
 └── README.md
 ```
@@ -295,12 +294,6 @@ To build a standalone installable Android APK:
 
 ---
 
-## 🎓 College Viva Preparation Guide
-
-For step-by-step explanations of the architecture, JWT lifecycle, photo uploads, GPS mapping, and database schemas for your final viva presentation, refer to the [Viva Preparation Guide](VIVA_GUIDE.md).
-
----
-
 ## 📄 Submission Checklist
 - [x] Complete React Native mobile app with Expo Router.
 - [x] Full Node.js + Express.js backend with MongoDB Atlas.
@@ -312,4 +305,3 @@ For step-by-step explanations of the architecture, JWT lifecycle, photo uploads,
 - [x] Render deployment blueprint (`render.yaml`).
 - [x] Standalone Android APK build configuration (`eas.json`).
 - [x] Complete source code on GitHub.
-- [x] College Viva Q&A Guide (`VIVA_GUIDE.md`).
