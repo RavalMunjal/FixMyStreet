@@ -1,5 +1,18 @@
 const jwt = require('jsonwebtoken');
+const mongoose = require('mongoose');
 const User = require('../models/User');
+
+const checkDB = (res) => {
+  if (mongoose.connection.readyState !== 1) {
+    res.status(503).json({
+      success: false,
+      message:
+        'Database connection pending. Please verify MONGODB_URI in your environment settings.',
+    });
+    return false;
+  }
+  return true;
+};
 
 // Helper to generate JWT
 const generateToken = (id, role) => {
@@ -41,6 +54,8 @@ const register = async (req, res, next) => {
     }
 
     const normalizedEmail = email.toLowerCase().trim();
+
+    if (!checkDB(res)) return;
 
     // Check if user already exists
     const existingUser = await User.findOne({ email: normalizedEmail });
@@ -98,6 +113,8 @@ const login = async (req, res, next) => {
     }
 
     const normalizedEmail = email.toLowerCase().trim();
+
+    if (!checkDB(res)) return;
 
     // Find user and explicitly select passwordHash
     const user = await User.findOne({ email: normalizedEmail }).select(
