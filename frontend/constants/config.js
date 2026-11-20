@@ -1,26 +1,35 @@
 import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 
 /**
  * FixMyStreet API Configuration
  * 
- * - Production / Deployed backend: Use your live Render or Railway URL
- * - Android Emulator: 'http://10.0.2.2:5000/api'
- * - Real Device / Expo Go: Replace with your PC local LAN IP e.g. 'http://192.168.1.100:5000/api'
+ * - Auto-detects your computer's local IP address when scanning with Expo Go on physical phone
+ * - Uses http://10.0.2.2:5000/api for Android Emulator
+ * - Uses PRODUCTION_API_URL for production APK builds
  */
 
-// CHANGE THIS TO YOUR HOSTED BACKEND URL (E.G. RENDER) FOR THE STANDALONE APK:
 export const PRODUCTION_API_URL = 'https://fixmystreet-backend.onrender.com/api';
 
-// Local development fallback:
-export const LOCAL_DEV_API_URL =
-  Platform.OS === 'android'
+const getDevApiUrl = () => {
+  // When running via Expo Go, hostUri contains the PC's LAN IP (e.g. 192.168.x.x:8081)
+  const hostUri =
+    Constants.expoConfig?.hostUri || Constants.manifest?.debuggerHost || '';
+
+  if (hostUri) {
+    const ip = hostUri.split(':')[0];
+    if (ip && ip !== 'localhost' && ip !== '127.0.0.1') {
+      return `http://${ip}:5000/api`;
+    }
+  }
+
+  // Android emulator loopback
+  return Platform.OS === 'android'
     ? 'http://10.0.2.2:5000/api'
     : 'http://localhost:5000/api';
+};
 
-// By default we check if __DEV__ is true, otherwise use production API URL
-export const API_BASE_URL = __DEV__
-  ? LOCAL_DEV_API_URL
-  : PRODUCTION_API_URL;
+export const API_BASE_URL = __DEV__ ? getDevApiUrl() : PRODUCTION_API_URL;
 
 export const APP_CONFIG = {
   appName: 'FixMyStreet',
