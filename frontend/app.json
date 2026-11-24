@@ -47,11 +47,6 @@
           "photosPermission": "The app needs access to your photos so you can upload proof of local street issues."
         }
       ]
-    ],
-    "extra": {
-      "eas": {
-        "projectId": "fixmystreet-project"
-      }
-    }
+    ]
   }
 }
