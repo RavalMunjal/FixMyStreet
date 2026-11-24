@@ -17,7 +17,7 @@ import Header from '../../../components/Header';
 import Badge from '../../../components/Badge';
 import Card from '../../../components/Card';
 import Input from '../../../components/Input';
-import Button from '../../components/Button';
+import Button from '../../../components/Button';
 import Loading from '../../../components/Loading';
 import { issueService, adminService, uploadService } from '../../../services/api';
 import { COLORS, SPACING, FONT_SIZE, RADIUS } from '../../../constants/theme';
