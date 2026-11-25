@@ -12,17 +12,20 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useAuth } from '../../../context/AuthContext';
 import Header from '../../../components/Header';
 import Card from '../../../components/Card';
 import Badge from '../../../components/Badge';
+import SupportButton from '../../../components/SupportButton';
 import Loading from '../../../components/Loading';
 import EmptyState from '../../../components/EmptyState';
-import { CATEGORIES, STATUSES } from '../../../constants/categories';
+import { CATEGORIES } from '../../../constants/categories';
 import { issueService } from '../../../services/api';
 import { COLORS, SPACING, FONT_SIZE, RADIUS } from '../../../constants/theme';
 
 export default function AllIssuesScreen() {
   const router = useRouter();
+  const { user } = useAuth();
 
   const [issues, setIssues] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -30,12 +33,13 @@ export default function AllIssuesScreen() {
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedStatus, setSelectedStatus] = useState('All');
+  const [sortBy, setSortBy] = useState('newest'); // 'newest' | 'most_supported'
   const [error, setError] = useState('');
 
   const fetchIssues = useCallback(async () => {
     try {
       setError('');
-      const params = {};
+      const params = { sort: sortBy };
       if (search.trim()) params.search = search.trim();
       if (selectedCategory !== 'All') params.category = selectedCategory;
       if (selectedStatus !== 'All') params.status = selectedStatus;
@@ -44,17 +48,17 @@ export default function AllIssuesScreen() {
       setIssues(res?.data?.issues || []);
     } catch (err) {
       console.warn('Fetch issues failed:', err);
-      setError('Unable to load complaints. Please check server connection.');
+      setError(err.message || 'Unable to load complaints. Please check server connection.');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [search, selectedCategory, selectedStatus]);
+  }, [search, selectedCategory, selectedStatus, sortBy]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
       fetchIssues();
-    }, 300);
+    }, 250);
     return () => clearTimeout(timer);
   }, [fetchIssues]);
 
@@ -69,13 +73,24 @@ export default function AllIssuesScreen() {
     fetchIssues();
   };
 
+  const handleIssueUpdated = (updatedIssue) => {
+    setIssues((prev) =>
+      prev.map((item) => (item._id === updatedIssue._id ? updatedIssue : item))
+    );
+  };
+
   const renderIssueItem = ({ item }) => (
     <Card
       onPress={() => router.push(`/(citizen)/issues/${item._id}`)}
       style={styles.card}
     >
       <View style={styles.cardHeader}>
-        <Badge category={item.category} size="sm" />
+        <View style={styles.badgeWrapRow}>
+          <Badge category={item.category} size="sm" />
+          {item.confirmedUrgency === 'High' ? (
+            <Badge urgency="High" size="sm" />
+          ) : null}
+        </View>
         <Badge status={item.status} size="sm" />
       </View>
 
@@ -100,6 +115,16 @@ export default function AllIssuesScreen() {
             Reported: {new Date(item.createdAt).toLocaleDateString()}
           </Text>
         </View>
+      </View>
+
+      <View style={styles.cardFooter}>
+        <SupportButton
+          issue={item}
+          currentUserId={user?._id}
+          onUpdated={handleIssueUpdated}
+          compact
+        />
+        <Text style={styles.detailsLink}>Details →</Text>
       </View>
     </Card>
   );
@@ -161,7 +186,7 @@ export default function AllIssuesScreen() {
 
       {/* Status Filter Chips */}
       <View style={styles.statusChipsRow}>
-        {['All', 'Pending', 'In Progress', 'Resolved'].map((st) => {
+        {['All', 'Reported', 'Under Review', 'In Progress', 'Resolved'].map((st) => {
           const isSelected = selectedStatus === st;
           return (
             <TouchableOpacity
@@ -173,6 +198,7 @@ export default function AllIssuesScreen() {
               ]}
             >
               <Text
+                numberOfLines={1}
                 style={[
                   styles.statusFilterText,
                   isSelected && styles.statusFilterTextSelected,
@@ -183,6 +209,45 @@ export default function AllIssuesScreen() {
             </TouchableOpacity>
           );
         })}
+      </View>
+
+      {/* Sort Row */}
+      <View style={styles.sortRow}>
+        <Text style={styles.sortLabel}>Sort by:</Text>
+        <TouchableOpacity
+          onPress={() => setSortBy('newest')}
+          style={[styles.sortPill, sortBy === 'newest' && styles.sortPillActive]}
+        >
+          <Text
+            style={[
+              styles.sortPillText,
+              sortBy === 'newest' && styles.sortPillTextActive,
+            ]}
+          >
+            Newest
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => setSortBy('most_supported')}
+          style={[
+            styles.sortPill,
+            sortBy === 'most_supported' && styles.sortPillActive,
+          ]}
+        >
+          <Ionicons
+            name="thumbs-up-outline"
+            size={12}
+            color={sortBy === 'most_supported' ? COLORS.primary : COLORS.textSecondary}
+          />
+          <Text
+            style={[
+              styles.sortPillText,
+              sortBy === 'most_supported' && styles.sortPillTextActive,
+            ]}
+          >
+            Most Supported
+          </Text>
+        </TouchableOpacity>
       </View>
 
       {/* Issues List */}
@@ -218,6 +283,7 @@ export default function AllIssuesScreen() {
                 setSearch('');
                 setSelectedCategory('All');
                 setSelectedStatus('All');
+                setSortBy('newest');
               }}
             />
           }
@@ -287,9 +353,8 @@ const styles = StyleSheet.create({
   },
   statusFilterBtn: {
     flexGrow: 1,
-    minWidth: '22%',
     paddingVertical: 6,
-    paddingHorizontal: 6,
+    paddingHorizontal: 10,
     borderRadius: RADIUS.sm,
     backgroundColor: COLORS.surface,
     borderWidth: 1,
@@ -301,15 +366,51 @@ const styles = StyleSheet.create({
     borderColor: COLORS.text,
   },
   statusFilterText: {
-    fontSize: FONT_SIZE.xs,
+    fontSize: 11,
     color: COLORS.textSecondary,
     fontWeight: '600',
   },
   statusFilterTextSelected: {
     color: COLORS.text,
   },
+  sortRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.xs,
+    gap: SPACING.xs,
+  },
+  sortLabel: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.textSecondary,
+    fontWeight: '600',
+  },
+  sortPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: SPACING.sm + 2,
+    paddingVertical: 4,
+    borderRadius: RADIUS.full,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  sortPillActive: {
+    backgroundColor: COLORS.primaryLight,
+    borderColor: COLORS.primary,
+  },
+  sortPillText: {
+    fontSize: 11,
+    color: COLORS.textSecondary,
+    fontWeight: '600',
+  },
+  sortPillTextActive: {
+    color: COLORS.primaryDark,
+  },
   listContent: {
     padding: SPACING.md,
+    paddingBottom: SPACING.xl,
   },
   card: {
     padding: SPACING.md,
@@ -317,7 +418,16 @@ const styles = StyleSheet.create({
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: SPACING.xs,
     marginBottom: SPACING.sm,
+  },
+  badgeWrapRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: SPACING.xs,
+    flex: 1,
   },
   cardBody: {
     flexDirection: 'row',
@@ -359,6 +469,20 @@ const styles = StyleSheet.create({
   dateText: {
     fontSize: FONT_SIZE.xs,
     color: COLORS.textMuted,
+  },
+  cardFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: SPACING.sm,
+    paddingTop: SPACING.sm,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+  },
+  detailsLink: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.primary,
+    fontWeight: '700',
   },
   errorContainer: {
     flex: 1,

@@ -4,6 +4,7 @@ const {
   getDashboardStats,
   getAllAdminIssues,
   updateIssueStatus,
+  updateIssueUrgency,
   resolveIssue,
   getUsers,
 } = require('../controllers/adminController');
@@ -17,6 +18,7 @@ router.use(requireAdmin);
 router.get('/dashboard', getDashboardStats);
 router.get('/issues', getAllAdminIssues);
 router.patch('/issues/:id/status', updateIssueStatus);
+router.patch('/issues/:id/urgency', updateIssueUrgency);
 router.post('/issues/:id/resolve', resolveIssue);
 router.get('/users', getUsers);
 

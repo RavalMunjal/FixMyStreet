@@ -20,9 +20,21 @@ import Badge from '../../../components/Badge';
 import Card from '../../../components/Card';
 import Input from '../../../components/Input';
 import Button from '../../../components/Button';
+import StatusTimeline from '../../../components/StatusTimeline';
 import Loading from '../../../components/Loading';
+import { normalizeStatusLabel } from '../../../constants/categories';
 import { issueService, adminService, uploadService } from '../../../services/api';
 import { COLORS, SPACING, FONT_SIZE, RADIUS } from '../../../constants/theme';
+
+let MapView, Marker, PROVIDER_GOOGLE;
+try {
+  const Maps = require('react-native-maps');
+  MapView = Maps.default;
+  Marker = Maps.Marker;
+  PROVIDER_GOOGLE = Maps.PROVIDER_GOOGLE;
+} catch (e) {
+  console.warn('react-native-maps unavailable');
+}
 
 export default function AdminIssueReviewScreen() {
   const { id } = useLocalSearchParams();
@@ -32,8 +44,9 @@ export default function AdminIssueReviewScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Status update & resolution state
-  const [status, setStatus] = useState('Pending');
+  // Status, urgency & resolution state
+  const [status, setStatus] = useState('Reported');
+  const [confirmedUrgency, setConfirmedUrgency] = useState('Normal');
   const [adminNote, setAdminNote] = useState('');
   const [resolutionAsset, setResolutionAsset] = useState(null);
   const [removedExistingProof, setRemovedExistingProof] = useState(false);
@@ -45,7 +58,8 @@ export default function AdminIssueReviewScreen() {
       const data = res?.data?.issue;
       setIssue(data);
       if (data) {
-        setStatus(data.status);
+        setStatus(normalizeStatusLabel(data.status));
+        setConfirmedUrgency(data.confirmedUrgency || 'Normal');
         setAdminNote(data.adminNote || '');
         setRemovedExistingProof(false);
       }
@@ -69,7 +83,6 @@ export default function AdminIssueReviewScreen() {
     fetchIssue();
   };
 
-  // Pick resolution proof image
   const pickResolutionImage = async () => {
     if (updating) return;
     try {
@@ -100,7 +113,6 @@ export default function AdminIssueReviewScreen() {
     }
   };
 
-  // Handle status update
   const handleUpdateStatus = async () => {
     if (updating) return;
     try {
@@ -109,7 +121,6 @@ export default function AdminIssueReviewScreen() {
         ? ''
         : issue.resolutionImageUrl || '';
 
-      // If a new resolution photo was chosen, upload it first
       if (resolutionAsset?.uri) {
         const uploadRes = await uploadService.uploadImage(resolutionAsset);
         uploadedResolutionUrl = uploadRes?.data?.url || '';
@@ -119,17 +130,27 @@ export default function AdminIssueReviewScreen() {
       }
 
       if (status === 'Resolved') {
-        await adminService.resolve(id, adminNote, uploadedResolutionUrl);
+        await adminService.resolve(
+          id,
+          adminNote,
+          uploadedResolutionUrl,
+          confirmedUrgency
+        );
       } else {
-        await adminService.updateStatus(id, status, adminNote);
+        await adminService.updateStatus(
+          id,
+          status,
+          adminNote,
+          confirmedUrgency
+        );
       }
 
       setResolutionAsset(null);
       await fetchIssue();
 
       Alert.alert(
-        'Success',
-        `Complaint has been updated to ${status} in MongoDB.`,
+        'Saved in MongoDB',
+        `Complaint updated to ${status} (Confirmed Urgency: ${confirmedUrgency}).`,
         [
           {
             text: 'Back to List',
@@ -169,6 +190,12 @@ export default function AdminIssueReviewScreen() {
   const displayedProofUri =
     resolutionAsset?.uri || (!removedExistingProof ? issue.resolutionImageUrl : null);
 
+  const hasValidCoords =
+    typeof issue.latitude === 'number' &&
+    typeof issue.longitude === 'number' &&
+    Number.isFinite(issue.latitude) &&
+    Number.isFinite(issue.longitude);
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <Header
@@ -205,6 +232,31 @@ export default function AdminIssueReviewScreen() {
           <Card style={styles.card}>
             <Text style={styles.issueTitle}>{issue.title}</Text>
             <Text style={styles.issueDesc}>{issue.description}</Text>
+
+            <View style={styles.urgencySummaryBox}>
+              <Text style={styles.urgencyMetaText}>
+                Citizen Requested:{' '}
+                <Text style={{ fontWeight: '700', color: COLORS.text }}>
+                  {issue.requestedUrgency || 'Normal'}
+                </Text>{' '}
+                | Confirmed:{' '}
+                <Text
+                  style={{
+                    fontWeight: '700',
+                    color:
+                      issue.confirmedUrgency === 'High'
+                        ? COLORS.danger
+                        : COLORS.text,
+                  }}
+                >
+                  {issue.confirmedUrgency || 'Normal'}
+                </Text>
+              </Text>
+              <Text style={styles.supportersMetaText}>
+                Supporters: {issue.supportCount || 0} citizens
+              </Text>
+            </View>
+
             <View style={styles.locationRow}>
               <Ionicons name="location" size={16} color={COLORS.secondary} />
               <Text style={styles.locationText}>{issue.address}</Text>
@@ -212,17 +264,41 @@ export default function AdminIssueReviewScreen() {
             <Text style={styles.reporterText}>
               Reported by: {issue.reportedBy?.name} ({issue.reportedBy?.email})
             </Text>
+
+            {hasValidCoords && MapView ? (
+              <View style={styles.miniMapWrapper}>
+                <MapView
+                  provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
+                  style={styles.miniMap}
+                  initialRegion={{
+                    latitude: issue.latitude,
+                    longitude: issue.longitude,
+                    latitudeDelta: 0.008,
+                    longitudeDelta: 0.008,
+                  }}
+                  scrollEnabled={false}
+                  zoomEnabled={false}
+                >
+                  <Marker
+                    coordinate={{
+                      latitude: issue.latitude,
+                      longitude: issue.longitude,
+                    }}
+                  />
+                </MapView>
+              </View>
+            ) : null}
           </Card>
 
-          {/* Status Transition Control Card */}
+          {/* Status & Urgency Transition Control Card */}
           <Card style={styles.card}>
             <Text style={styles.sectionHeading}>Update Complaint Status</Text>
             <Text style={styles.helperText}>
-              Select the new operational status for this issue:
+              Select the new stage for the progress timeline:
             </Text>
 
             <View style={styles.statusButtonsRow}>
-              {['Pending', 'In Progress', 'Resolved'].map((st) => {
+              {['Reported', 'Under Review', 'In Progress', 'Resolved'].map((st) => {
                 const isSelected = status === st;
                 return (
                   <TouchableOpacity
@@ -232,8 +308,11 @@ export default function AdminIssueReviewScreen() {
                     style={[
                       styles.statusChoiceBtn,
                       isSelected && styles.statusChoiceBtnSelected,
-                      st === 'Pending' && isSelected && { borderColor: COLORS.pending },
-                      st === 'In Progress' && isSelected && { borderColor: COLORS.inProgress },
+                      st === 'Reported' && isSelected && { borderColor: COLORS.pending },
+                      st === 'Under Review' &&
+                        isSelected && { borderColor: COLORS.underReview },
+                      st === 'In Progress' &&
+                        isSelected && { borderColor: COLORS.inProgress },
                       st === 'Resolved' && isSelected && { borderColor: COLORS.resolved },
                     ]}
                   >
@@ -244,6 +323,39 @@ export default function AdminIssueReviewScreen() {
                       ]}
                     >
                       {st}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* Independent Admin Urgency Confirmation */}
+            <Text style={styles.fieldLabel}>Confirm Official Urgency Level</Text>
+            <View style={styles.urgencyRow}>
+              {['Normal', 'High'].map((u) => {
+                const active = confirmedUrgency === u;
+                return (
+                  <TouchableOpacity
+                    key={u}
+                    disabled={updating}
+                    onPress={() => setConfirmedUrgency(u)}
+                    style={[
+                      styles.urgencyBtn,
+                      active &&
+                        (u === 'High'
+                          ? { borderColor: COLORS.danger, backgroundColor: COLORS.dangerBg }
+                          : { borderColor: COLORS.secondary, backgroundColor: COLORS.secondaryLight }),
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.urgencyBtnText,
+                        active && {
+                          color: u === 'High' ? COLORS.danger : COLORS.secondary,
+                        },
+                      ]}
+                    >
+                      {u}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -310,6 +422,15 @@ export default function AdminIssueReviewScreen() {
               style={styles.saveBtn}
             />
           </Card>
+
+          {/* Full Recorded Timeline History */}
+          <Card style={styles.card}>
+            <Text style={styles.sectionHeading}>Recorded Progress Timeline</Text>
+            <StatusTimeline
+              statusHistory={issue.statusHistory}
+              currentStatus={issue.status}
+            />
+          </Card>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -326,7 +447,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: SPACING.md,
-    paddingBottom: SPACING.xxl,
+    paddingBottom: SPACING.xl,
   },
   imageBox: {
     position: 'relative',
@@ -346,6 +467,8 @@ const styles = StyleSheet.create({
     right: SPACING.md,
     flexDirection: 'row',
     justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: SPACING.xs,
   },
   card: {
     padding: SPACING.md,
@@ -363,6 +486,22 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.sm,
     lineHeight: 20,
   },
+  urgencySummaryBox: {
+    backgroundColor: COLORS.surfaceAlt,
+    borderRadius: RADIUS.sm,
+    padding: SPACING.sm,
+    marginBottom: SPACING.sm,
+    gap: 2,
+  },
+  urgencyMetaText: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.textSecondary,
+  },
+  supportersMetaText: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.primary,
+    fontWeight: '700',
+  },
   locationRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -379,6 +518,18 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZE.xs,
     color: COLORS.textMuted,
     marginTop: 4,
+  },
+  miniMapWrapper: {
+    height: 140,
+    borderRadius: RADIUS.md,
+    overflow: 'hidden',
+    marginTop: SPACING.sm,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  miniMap: {
+    width: '100%',
+    height: '100%',
   },
   sectionHeading: {
     fontSize: FONT_SIZE.md,
@@ -399,9 +550,9 @@ const styles = StyleSheet.create({
   },
   statusChoiceBtn: {
     flexGrow: 1,
-    minWidth: '28%',
+    minWidth: '45%',
     paddingVertical: SPACING.sm,
-    paddingHorizontal: 6,
+    paddingHorizontal: 8,
     borderRadius: RADIUS.md,
     backgroundColor: COLORS.surfaceAlt,
     borderWidth: 2,
@@ -418,6 +569,25 @@ const styles = StyleSheet.create({
   },
   statusChoiceTextSelected: {
     color: COLORS.text,
+  },
+  urgencyRow: {
+    flexDirection: 'row',
+    gap: SPACING.sm,
+    marginBottom: SPACING.md,
+  },
+  urgencyBtn: {
+    flex: 1,
+    paddingVertical: SPACING.sm,
+    borderRadius: RADIUS.md,
+    backgroundColor: COLORS.surfaceAlt,
+    borderWidth: 2,
+    borderColor: 'transparent',
+    alignItems: 'center',
+  },
+  urgencyBtnText: {
+    fontSize: FONT_SIZE.xs,
+    fontWeight: '700',
+    color: COLORS.textSecondary,
   },
   adminNoteInput: {
     marginBottom: SPACING.md,

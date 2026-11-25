@@ -1,36 +1,40 @@
 export const COLORS = {
-  // Brand accents (Clean, modern civic green/teal & trust blue)
-  primary: '#0d9488', // Teal 600
-  primaryDark: '#0f766e', // Teal 700
-  primaryLight: '#ccfbf1', // Teal 100
-  secondary: '#0284c7', // Sky 600
+  // Brand accents
+  primary: '#0d9488',
+  primaryDark: '#0f766e',
+  primaryLight: '#ccfbf1',
+  secondary: '#0284c7',
   secondaryLight: '#e0f2fe',
 
   // Neutrals
-  background: '#f8fafc', // Slate 50
+  background: '#f8fafc',
   surface: '#ffffff',
-  surfaceAlt: '#f1f5f9', // Slate 100
-  text: '#0f172a', // Slate 900
-  textSecondary: '#64748b', // Slate 500
-  textMuted: '#94a3b8', // Slate 400
-  border: '#e2e8f0', // Slate 200
+  surfaceAlt: '#f1f5f9',
+  text: '#0f172a',
+  textSecondary: '#64748b',
+  textMuted: '#94a3b8',
+  border: '#e2e8f0',
   borderDark: '#cbd5e1',
 
-  // Status Colors (Matching backend status values)
-  pending: '#d97706', // Amber 600
-  pendingBg: '#fef3c7', // Amber 100
+  // Status Colors
+  pending: '#d97706', // Reported / Pending
+  pendingBg: '#fef3c7',
   pendingBorder: '#fde68a',
 
-  inProgress: '#2563eb', // Blue 600
-  inProgressBg: '#dbeafe', // Blue 100
+  underReview: '#7c3aed', // Under Review
+  underReviewBg: '#ede9fe',
+  underReviewBorder: '#ddd6fe',
+
+  inProgress: '#2563eb', // In Progress
+  inProgressBg: '#dbeafe',
   inProgressBorder: '#bfdbfe',
 
-  resolved: '#059669', // Emerald 600
-  resolvedBg: '#d1fae5', // Emerald 100
+  resolved: '#059669', // Resolved
+  resolvedBg: '#d1fae5',
   resolvedBorder: '#a7f3d0',
 
-  danger: '#dc2626', // Red 600
-  dangerBg: '#fee2e2', // Red 100
+  danger: '#dc2626',
+  dangerBg: '#fee2e2',
   dangerBorder: '#fca5a5',
 };
 

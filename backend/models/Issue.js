@@ -1,16 +1,31 @@
 const mongoose = require('mongoose');
 
+const ISSUE_STATUSES = [
+  'Reported',
+  'Under Review',
+  'In Progress',
+  'Resolved',
+  'Pending', // Preserved for compatibility with earlier records
+];
+
+const URGENCY_LEVELS = ['Normal', 'High'];
+
 const statusHistorySchema = new mongoose.Schema(
   {
     status: {
       type: String,
-      enum: ['Pending', 'In Progress', 'Resolved'],
+      enum: ISSUE_STATUSES,
       required: true,
     },
     updatedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
       required: true,
+    },
+    updatedByRole: {
+      type: String,
+      enum: ['citizen', 'admin'],
+      default: 'admin',
     },
     note: {
       type: String,
@@ -75,6 +90,17 @@ const issueSchema = new mongoose.Schema(
       min: -180,
       max: 180,
     },
+    location: {
+      type: {
+        type: String,
+        enum: ['Point'],
+        default: 'Point',
+      },
+      coordinates: {
+        type: [Number], // [longitude, latitude]
+        default: undefined,
+      },
+    },
     address: {
       type: String,
       trim: true,
@@ -83,10 +109,37 @@ const issueSchema = new mongoose.Schema(
     status: {
       type: String,
       enum: {
-        values: ['Pending', 'In Progress', 'Resolved'],
-        message: 'Status must be Pending, In Progress, or Resolved',
+        values: ISSUE_STATUSES,
+        message: 'Status must be Reported, Under Review, In Progress, or Resolved',
       },
-      default: 'Pending',
+      default: 'Reported',
+    },
+    requestedUrgency: {
+      type: String,
+      enum: {
+        values: URGENCY_LEVELS,
+        message: 'Requested urgency must be Normal or High',
+      },
+      default: 'Normal',
+    },
+    confirmedUrgency: {
+      type: String,
+      enum: {
+        values: URGENCY_LEVELS,
+        message: 'Confirmed urgency must be Normal or High',
+      },
+      default: 'Normal',
+    },
+    supporters: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+      },
+    ],
+    supportCount: {
+      type: Number,
+      default: 0,
+      min: 0,
     },
     reportedBy: {
       type: mongoose.Schema.Types.ObjectId,
@@ -109,13 +162,37 @@ const issueSchema = new mongoose.Schema(
   }
 );
 
+// Sync GeoJSON Point coordinates [longitude, latitude] & supportCount before save
+issueSchema.pre('save', function (next) {
+  if (
+    typeof this.latitude === 'number' &&
+    typeof this.longitude === 'number' &&
+    Number.isFinite(this.latitude) &&
+    Number.isFinite(this.longitude)
+  ) {
+    this.location = {
+      type: 'Point',
+      coordinates: [this.longitude, this.latitude],
+    };
+  }
+  if (Array.isArray(this.supporters)) {
+    this.supportCount = this.supporters.length;
+  }
+  next();
+});
+
 // Indexes for high performance querying
 issueSchema.index({ status: 1 });
 issueSchema.index({ category: 1 });
 issueSchema.index({ reportedBy: 1 });
 issueSchema.index({ createdAt: -1 });
+issueSchema.index({ supportCount: -1, createdAt: -1 });
+issueSchema.index({ confirmedUrgency: 1, createdAt: -1 });
 issueSchema.index({ latitude: 1, longitude: 1 });
+issueSchema.index({ location: '2dsphere' });
 
 const Issue = mongoose.model('Issue', issueSchema);
 
 module.exports = Issue;
+module.exports.ISSUE_STATUSES = ISSUE_STATUSES;
+module.exports.URGENCY_LEVELS = URGENCY_LEVELS;

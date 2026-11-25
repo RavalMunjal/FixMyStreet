@@ -16,6 +16,7 @@ import { issueService } from '../../services/api';
 import Card from '../../components/Card';
 import Badge from '../../components/Badge';
 import Button from '../../components/Button';
+import SupportButton from '../../components/SupportButton';
 import Loading from '../../components/Loading';
 import EmptyState from '../../components/EmptyState';
 import { COLORS, SPACING, FONT_SIZE, RADIUS } from '../../constants/theme';
@@ -52,7 +53,9 @@ export default function HomeDashboard() {
       } else {
         setStats({
           total: res?.data?.total || issues.length,
-          pending: issues.filter((i) => i.status === 'Pending').length,
+          pending: issues.filter(
+            (i) => i.status === 'Reported' || i.status === 'Under Review' || i.status === 'Pending'
+          ).length,
           inProgress: issues.filter((i) => i.status === 'In Progress').length,
           resolved: issues.filter((i) => i.status === 'Resolved').length,
         });
@@ -79,9 +82,15 @@ export default function HomeDashboard() {
     fetchDashboardData();
   };
 
+  const handleIssueUpdated = (updatedIssue) => {
+    setRecentIssues((prev) =>
+      prev.map((item) => (item._id === updatedIssue._id ? updatedIssue : item))
+    );
+  };
+
   if (loading && !refreshing) {
     return (
-      <SafeAreaView style={styles.safeArea}>
+      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
         <Loading message="Loading FixMyStreet dashboard..." fullScreen />
       </SafeAreaView>
     );
@@ -143,7 +152,7 @@ export default function HomeDashboard() {
             <Text style={[styles.statCount, { color: COLORS.pending }]}>
               {stats.pending}
             </Text>
-            <Text style={styles.statLabel}>Pending</Text>
+            <Text style={styles.statLabel}>Reported / Review</Text>
           </View>
 
           <View
@@ -173,8 +182,8 @@ export default function HomeDashboard() {
               <Ionicons name="map" size={22} color={COLORS.secondary} />
             </View>
             <View style={styles.shortcutTextCol}>
-              <Text style={styles.shortcutTitle}>Nearby Map</Text>
-              <Text style={styles.shortcutSubtitle}>Explore issues on GPS map</Text>
+              <Text style={styles.shortcutTitle}>Nearby Issues (1/3/5 km)</Text>
+              <Text style={styles.shortcutSubtitle}>Explore & filter nearby problems</Text>
             </View>
           </TouchableOpacity>
 
@@ -187,7 +196,7 @@ export default function HomeDashboard() {
             </View>
             <View style={styles.shortcutTextCol}>
               <Text style={styles.shortcutTitle}>My Complaints</Text>
-              <Text style={styles.shortcutSubtitle}>Check resolution progress</Text>
+              <Text style={styles.shortcutSubtitle}>Track timeline & status updates</Text>
             </View>
           </TouchableOpacity>
         </View>
@@ -220,7 +229,12 @@ export default function HomeDashboard() {
               style={styles.issueCard}
             >
               <View style={styles.cardHeader}>
-                <Badge category={issue.category} size="sm" />
+                <View style={styles.badgeGroup}>
+                  <Badge category={issue.category} size="sm" />
+                  {issue.confirmedUrgency === 'High' ? (
+                    <Badge urgency="High" size="sm" />
+                  ) : null}
+                </View>
                 <Badge status={issue.status} size="sm" />
               </View>
 
@@ -250,6 +264,16 @@ export default function HomeDashboard() {
                   </View>
                 </View>
               </View>
+
+              <View style={styles.cardFooter}>
+                <SupportButton
+                  issue={issue}
+                  currentUserId={user?._id}
+                  onUpdated={handleIssueUpdated}
+                  compact
+                />
+                <Text style={styles.viewLink}>Details →</Text>
+              </View>
             </Card>
           ))
         )}
@@ -265,6 +289,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: SPACING.md,
+    paddingBottom: SPACING.xl,
   },
   header: {
     flexDirection: 'row',
@@ -275,9 +300,6 @@ const styles = StyleSheet.create({
   headerTextCol: {
     flex: 1,
     marginRight: SPACING.sm,
-  },
-  shortcutTextCol: {
-    flex: 1,
   },
   greeting: {
     fontSize: FONT_SIZE.sm,
@@ -353,6 +375,7 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZE.xs,
     color: COLORS.textSecondary,
     marginTop: 2,
+    textAlign: 'center',
   },
   shortcutsRow: {
     flexDirection: 'column',
@@ -375,6 +398,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: SPACING.md,
+  },
+  shortcutTextCol: {
+    flex: 1,
   },
   shortcutTitle: {
     fontSize: FONT_SIZE.md,
@@ -413,7 +439,16 @@ const styles = StyleSheet.create({
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: SPACING.xs,
     marginBottom: SPACING.sm,
+  },
+  badgeGroup: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: SPACING.xs,
+    flex: 1,
   },
   cardBody: {
     flexDirection: 'row',
@@ -449,5 +484,19 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
     marginLeft: 4,
     flex: 1,
+  },
+  cardFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: SPACING.sm,
+    paddingTop: SPACING.sm,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+  },
+  viewLink: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.primary,
+    fontWeight: '700',
   },
 });

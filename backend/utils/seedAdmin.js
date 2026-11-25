@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const dotenv = require('dotenv');
 const User = require('../models/User');
+const Issue = require('../models/Issue');
 
 dotenv.config();
 
@@ -48,6 +49,24 @@ const ensureDefaultAccounts = async () => {
       });
       console.log(`🎉 Created demo Citizen account: ${demoEmail}`);
     }
+  }
+
+  // Safely backfill GeoJSON coordinates on any legacy complaints missing them
+  const legacyIssues = await Issue.find({
+    'location.coordinates.0': { $exists: false },
+    latitude: { $type: 'number' },
+    longitude: { $type: 'number' },
+  });
+
+  for (const doc of legacyIssues) {
+    doc.location = {
+      type: 'Point',
+      coordinates: [doc.longitude, doc.latitude],
+    };
+    if (typeof doc.supportCount !== 'number') {
+      doc.supportCount = Array.isArray(doc.supporters) ? doc.supporters.length : 0;
+    }
+    await doc.save();
   }
 };
 

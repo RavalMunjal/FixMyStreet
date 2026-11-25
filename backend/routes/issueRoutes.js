@@ -6,6 +6,8 @@ const {
   createIssue,
   getMyIssues,
   getNearbyIssues,
+  supportIssue,
+  removeSupport,
 } = require('../controllers/issueController');
 const { protect } = require('../middleware/auth');
 
@@ -16,6 +18,8 @@ router.get('/nearby', getNearbyIssues);
 // Protected citizen routes (must be placed before dynamic /:id)
 router.get('/my', protect, getMyIssues);
 router.post('/', protect, createIssue);
+router.post('/:id/support', protect, supportIssue);
+router.delete('/:id/support', protect, removeSupport);
 
 // Single issue detail by ID
 router.get('/:id', getIssueById);

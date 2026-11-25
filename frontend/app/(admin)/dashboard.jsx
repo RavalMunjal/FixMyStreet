@@ -28,6 +28,7 @@ export default function AdminDashboard() {
     pending: 0,
     inProgress: 0,
     resolved: 0,
+    highUrgency: 0,
     totalUsers: 0,
   });
   const [recentIssues, setRecentIssues] = useState([]);
@@ -47,7 +48,7 @@ export default function AdminDashboard() {
       }
     } catch (err) {
       console.warn('Admin dashboard fetch error:', err);
-      setError('Unable to load admin metrics. Pull down to refresh.');
+      setError(err.message || 'Unable to load admin metrics. Pull down to refresh.');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -67,7 +68,7 @@ export default function AdminDashboard() {
 
   if (loading && !refreshing) {
     return (
-      <SafeAreaView style={styles.safeArea}>
+      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
         <Loading message="Loading Administrator Control Center..." fullScreen />
       </SafeAreaView>
     );
@@ -116,14 +117,14 @@ export default function AdminDashboard() {
             <Text style={[styles.metricCount, { color: COLORS.pending }]}>
               {stats.pending}
             </Text>
-            <Text style={styles.metricLabel}>Action Pending</Text>
+            <Text style={styles.metricLabel}>Reported / Review</Text>
           </View>
 
           <View style={[styles.metricCard, { borderLeftColor: COLORS.inProgress }]}>
             <Text style={[styles.metricCount, { color: COLORS.inProgress }]}>
               {stats.inProgress}
             </Text>
-            <Text style={styles.metricLabel}>In Repair</Text>
+            <Text style={styles.metricLabel}>In Progress</Text>
           </View>
 
           <View style={[styles.metricCard, { borderLeftColor: COLORS.resolved }]}>
@@ -134,6 +135,25 @@ export default function AdminDashboard() {
           </View>
         </View>
 
+        {/* Confirmed High Urgency Callout */}
+        <TouchableOpacity
+          style={styles.urgencyBanner}
+          onPress={() => router.push('/(admin)/issues')}
+        >
+          <View style={styles.urgencyLeft}>
+            <Ionicons name="alert-circle" size={22} color={COLORS.danger} />
+            <View style={styles.urgencyTextCol}>
+              <Text style={styles.urgencyTitle}>
+                Confirmed High Urgency: {stats.highUrgency || 0}
+              </Text>
+              <Text style={styles.urgencySubtitle}>
+                Tap to review & prioritize civic complaints
+              </Text>
+            </View>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={COLORS.danger} />
+        </TouchableOpacity>
+
         {/* Quick Management Navigation Cards */}
         <View style={styles.quickNavRow}>
           <TouchableOpacity
@@ -143,7 +163,7 @@ export default function AdminDashboard() {
             <Ionicons name="construct" size={24} color={COLORS.secondary} />
             <Text style={styles.quickNavTitle}>Review Complaints</Text>
             <Text style={styles.quickNavSubtitle}>
-              Update status, notes & proof
+              Update timeline, urgency & proof
             </Text>
           </TouchableOpacity>
 
@@ -185,7 +205,14 @@ export default function AdminDashboard() {
               style={styles.issueCard}
             >
               <View style={styles.cardHeader}>
-                <Badge category={issue.category} size="sm" />
+                <View style={styles.badgeGroup}>
+                  <Badge category={issue.category} size="sm" />
+                  {issue.confirmedUrgency === 'High' ? (
+                    <Badge urgency="High" size="sm" />
+                  ) : issue.requestedUrgency === 'High' ? (
+                    <Badge urgency="High" size="sm" label="Req: High" />
+                  ) : null}
+                </View>
                 <Badge status={issue.status} size="sm" />
               </View>
 
@@ -202,7 +229,7 @@ export default function AdminDashboard() {
                   </Text>
                   <Text style={styles.reporterText}>
                     By: {issue.reportedBy?.name || 'Citizen'} •{' '}
-                    {new Date(issue.createdAt).toLocaleDateString()}
+                    {issue.supportCount || 0} supporters
                   </Text>
                 </View>
               </View>
@@ -221,6 +248,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: SPACING.md,
+    paddingBottom: SPACING.xl,
   },
   header: {
     flexDirection: 'row',
@@ -273,7 +301,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: SPACING.sm,
-    marginBottom: SPACING.lg,
+    marginBottom: SPACING.md,
   },
   metricCard: {
     flex: 1,
@@ -295,13 +323,44 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
     marginTop: 2,
   },
+  urgencyBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: COLORS.dangerBg,
+    borderWidth: 1,
+    borderColor: COLORS.dangerBorder,
+    borderRadius: RADIUS.md,
+    padding: SPACING.md,
+    marginBottom: SPACING.md,
+  },
+  urgencyLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    flex: 1,
+  },
+  urgencyTextCol: {
+    flex: 1,
+  },
+  urgencyTitle: {
+    fontSize: FONT_SIZE.sm,
+    fontWeight: '700',
+    color: COLORS.danger,
+  },
+  urgencySubtitle: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.textSecondary,
+  },
   quickNavRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: SPACING.sm,
     marginBottom: SPACING.lg,
   },
   quickNavCard: {
     flex: 1,
+    minWidth: 140,
     backgroundColor: COLORS.surface,
     borderRadius: RADIUS.md,
     borderWidth: 1,
@@ -347,7 +406,16 @@ const styles = StyleSheet.create({
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: SPACING.xs,
     marginBottom: SPACING.sm,
+  },
+  badgeGroup: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+    flex: 1,
   },
   cardBody: {
     flexDirection: 'row',

@@ -11,13 +11,15 @@ export default function AdminLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
+        tabBarHideOnKeyboard: true,
+        tabBarAllowFontScaling: false,
         tabBarActiveTintColor: COLORS.secondary,
         tabBarInactiveTintColor: COLORS.textMuted,
         tabBarStyle: {
           backgroundColor: COLORS.surface,
           borderTopColor: COLORS.border,
-          height: 58 + insets.bottom,
-          paddingBottom: Math.max(insets.bottom, 6),
+          minHeight: 60 + insets.bottom,
+          paddingBottom: Math.max(insets.bottom, 8),
           paddingTop: 6,
         },
         tabBarLabelStyle: {

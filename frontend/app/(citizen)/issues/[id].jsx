@@ -7,20 +7,34 @@ import {
   Image,
   RefreshControl,
   TouchableOpacity,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
+import { useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useAuth } from '../../../context/AuthContext';
 import Header from '../../../components/Header';
 import Badge from '../../../components/Badge';
 import Card from '../../../components/Card';
+import SupportButton from '../../../components/SupportButton';
+import StatusTimeline from '../../../components/StatusTimeline';
 import Loading from '../../../components/Loading';
 import { issueService } from '../../../services/api';
 import { COLORS, SPACING, FONT_SIZE, RADIUS } from '../../../constants/theme';
 
+let MapView, Marker, PROVIDER_GOOGLE;
+try {
+  const Maps = require('react-native-maps');
+  MapView = Maps.default;
+  Marker = Maps.Marker;
+  PROVIDER_GOOGLE = Maps.PROVIDER_GOOGLE;
+} catch (e) {
+  console.warn('react-native-maps unavailable');
+}
+
 export default function IssueDetailsScreen() {
   const { id } = useLocalSearchParams();
-  const router = useRouter();
+  const { user } = useAuth();
 
   const [issue, setIssue] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -54,7 +68,7 @@ export default function IssueDetailsScreen() {
 
   if (loading && !refreshing) {
     return (
-      <SafeAreaView style={styles.safeArea}>
+      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
         <Header title="Complaint Details" showBack />
         <Loading message="Loading complaint details..." fullScreen />
       </SafeAreaView>
@@ -63,7 +77,7 @@ export default function IssueDetailsScreen() {
 
   if (error || !issue) {
     return (
-      <SafeAreaView style={styles.safeArea}>
+      <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
         <Header title="Complaint Details" showBack />
         <View style={styles.errorBox}>
           <Ionicons name="alert-circle-outline" size={48} color={COLORS.danger} />
@@ -77,6 +91,12 @@ export default function IssueDetailsScreen() {
       </SafeAreaView>
     );
   }
+
+  const hasValidCoords =
+    typeof issue.latitude === 'number' &&
+    typeof issue.longitude === 'number' &&
+    Number.isFinite(issue.latitude) &&
+    Number.isFinite(issue.longitude);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
@@ -105,7 +125,7 @@ export default function IssueDetailsScreen() {
           </View>
         </View>
 
-        {/* Title & Metadata */}
+        {/* Title, Metadata & Support Button */}
         <View style={styles.titleSection}>
           <Text style={styles.title}>{issue.title}</Text>
           <View style={styles.reportedByRow}>
@@ -115,6 +135,27 @@ export default function IssueDetailsScreen() {
               {new Date(issue.createdAt).toLocaleDateString()}
             </Text>
           </View>
+
+          <View style={styles.urgencySupportRow}>
+            <SupportButton
+              issue={issue}
+              currentUserId={user?._id}
+              onUpdated={(updated) => setIssue(updated)}
+            />
+            <View style={styles.urgencyPills}>
+              {issue.confirmedUrgency === 'High' ? (
+                <Badge urgency="High" size="sm" label="Confirmed High Urgency" />
+              ) : issue.requestedUrgency === 'High' ? (
+                <Badge
+                  urgency="High"
+                  size="sm"
+                  label="Requested: High (Pending Review)"
+                />
+              ) : (
+                <Badge urgency="Normal" size="sm" />
+              )}
+            </View>
+          </View>
         </View>
 
         {/* Description Card */}
@@ -123,18 +164,47 @@ export default function IssueDetailsScreen() {
           <Text style={styles.bodyText}>{issue.description}</Text>
         </Card>
 
-        {/* Location Information Card */}
+        {/* Location Card + Embedded Pin Map */}
         <Card style={styles.card}>
-          <Text style={styles.sectionHeading}>Location Details</Text>
+          <Text style={styles.sectionHeading}>Location & Map Pin</Text>
           <View style={styles.locationRow}>
             <Ionicons name="location" size={20} color={COLORS.primary} />
             <Text style={styles.addressText}>
               {issue.address || 'Location captured via GPS'}
             </Text>
           </View>
-          <Text style={styles.coordsText}>
-            GPS Coordinates: {issue.latitude?.toFixed(5)}, {issue.longitude?.toFixed(5)}
-          </Text>
+          {hasValidCoords ? (
+            <>
+              <Text style={styles.coordsText}>
+                GPS Coordinates: {issue.latitude.toFixed(5)}, {issue.longitude.toFixed(5)}
+              </Text>
+              {MapView ? (
+                <View style={styles.miniMapWrapper}>
+                  <MapView
+                    provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
+                    style={styles.miniMap}
+                    initialRegion={{
+                      latitude: issue.latitude,
+                      longitude: issue.longitude,
+                      latitudeDelta: 0.008,
+                      longitudeDelta: 0.008,
+                    }}
+                    scrollEnabled={false}
+                    zoomEnabled={false}
+                  >
+                    <Marker
+                      coordinate={{
+                        latitude: issue.latitude,
+                        longitude: issue.longitude,
+                      }}
+                      title={issue.title}
+                      description={issue.address || issue.category}
+                    />
+                  </MapView>
+                </View>
+              ) : null}
+            </>
+          ) : null}
         </Card>
 
         {/* Admin Resolution Section if available */}
@@ -142,7 +212,7 @@ export default function IssueDetailsScreen() {
           <Card style={[styles.card, styles.resolutionCard]}>
             <View style={styles.resolutionHeader}>
               <Ionicons name="shield-checkmark" size={22} color={COLORS.resolved} />
-              <Text style={styles.resolutionTitle}>Administrator Resolution</Text>
+              <Text style={styles.resolutionTitle}>Administrator Update</Text>
             </View>
 
             {issue.adminNote ? (
@@ -161,29 +231,13 @@ export default function IssueDetailsScreen() {
           </Card>
         )}
 
-        {/* Status History Timeline */}
+        {/* Feature 2: Visual 4-Step Progress Timeline */}
         <Card style={styles.card}>
-          <Text style={styles.sectionHeading}>Status History</Text>
-          {issue.statusHistory && issue.statusHistory.length > 0 ? (
-            issue.statusHistory.map((history, idx) => (
-              <View key={idx} style={styles.timelineItem}>
-                <View style={styles.timelineDot} />
-                <View style={styles.timelineContent}>
-                  <View style={styles.timelineStatusRow}>
-                    <Badge status={history.status} size="sm" />
-                    <Text style={styles.timelineDate}>
-                      {new Date(history.updatedAt).toLocaleString()}
-                    </Text>
-                  </View>
-                  {history.note ? (
-                    <Text style={styles.timelineNote}>{history.note}</Text>
-                  ) : null}
-                </View>
-              </View>
-            ))
-          ) : (
-            <Text style={styles.bodyText}>Complaint submitted as Pending.</Text>
-          )}
+          <Text style={styles.sectionHeading}>Complaint Progress Timeline</Text>
+          <StatusTimeline
+            statusHistory={issue.statusHistory}
+            currentStatus={issue.status}
+          />
         </Card>
       </ScrollView>
     </SafeAreaView>
@@ -197,6 +251,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: SPACING.md,
+    paddingBottom: SPACING.xl,
   },
   imageContainer: {
     position: 'relative',
@@ -216,6 +271,8 @@ const styles = StyleSheet.create({
     right: SPACING.md,
     flexDirection: 'row',
     justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: SPACING.xs,
   },
   titleSection: {
     marginBottom: SPACING.md,
@@ -229,11 +286,26 @@ const styles = StyleSheet.create({
   reportedByRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginBottom: SPACING.sm,
   },
   reportedByText: {
     fontSize: FONT_SIZE.xs,
     color: COLORS.textSecondary,
     marginLeft: SPACING.xs,
+    flex: 1,
+  },
+  urgencySupportRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: SPACING.sm,
+    marginTop: SPACING.xs,
+  },
+  urgencyPills: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: SPACING.xs,
   },
   card: {
     padding: SPACING.md,
@@ -265,8 +337,20 @@ const styles = StyleSheet.create({
   coordsText: {
     fontSize: FONT_SIZE.xs,
     color: COLORS.textSecondary,
-    fontFamily: 'monospace',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     marginTop: 2,
+  },
+  miniMapWrapper: {
+    height: 160,
+    borderRadius: RADIUS.md,
+    overflow: 'hidden',
+    marginTop: SPACING.sm,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  miniMap: {
+    width: '100%',
+    height: '100%',
   },
   resolutionCard: {
     borderColor: COLORS.resolvedBorder,
@@ -303,38 +387,6 @@ const styles = StyleSheet.create({
     height: 180,
     borderRadius: RADIUS.md,
     backgroundColor: COLORS.surfaceAlt,
-  },
-  timelineItem: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: SPACING.md,
-  },
-  timelineDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: COLORS.primary,
-    marginTop: 6,
-    marginRight: SPACING.sm,
-  },
-  timelineContent: {
-    flex: 1,
-  },
-  timelineStatusRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: SPACING.xs,
-    marginBottom: 4,
-  },
-  timelineDate: {
-    fontSize: FONT_SIZE.xs,
-    color: COLORS.textMuted,
-  },
-  timelineNote: {
-    fontSize: FONT_SIZE.xs,
-    color: COLORS.textSecondary,
   },
   errorBox: {
     flex: 1,

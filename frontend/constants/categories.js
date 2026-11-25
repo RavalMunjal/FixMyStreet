@@ -45,18 +45,47 @@ export const CATEGORIES = [
 
 export const STATUSES = [
   {
-    id: 'Pending',
-    label: 'Pending',
-    description: 'Submitted and awaiting review by administrators',
+    id: 'Reported',
+    label: 'Reported',
+    icon: 'flag-outline',
+    description: 'Submitted by citizen and logged in database',
+  },
+  {
+    id: 'Under Review',
+    label: 'Under Review',
+    icon: 'eye-outline',
+    description: 'Being inspected by municipal administrators',
   },
   {
     id: 'In Progress',
     label: 'In Progress',
-    description: 'Under active repair or municipal investigation',
+    icon: 'construct-outline',
+    description: 'Under active repair by field crew',
   },
   {
     id: 'Resolved',
     label: 'Resolved',
-    description: 'Issue has been repaired with resolution proof',
+    icon: 'checkmark-circle-outline',
+    description: 'Issue has been repaired and marked resolved',
   },
 ];
+
+export const URGENCY_LEVELS = [
+  {
+    id: 'Normal',
+    label: 'Normal',
+    description: 'Standard civic repair queue',
+  },
+  {
+    id: 'High',
+    label: 'High',
+    description: 'Safety hazard needing prompt review (subject to admin confirmation)',
+  },
+];
+
+export const DISTANCE_FILTERS_KM = [1, 3, 5];
+
+export const normalizeStatusLabel = (status) => {
+  if (!status || status === 'Pending') return 'Reported';
+  return status;
+};

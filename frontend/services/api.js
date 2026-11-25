@@ -123,10 +123,20 @@ export const issueService = {
     return res.data;
   },
 
-  async getNearby(latitude, longitude, radiusKm = 15) {
+  async getNearby(latitude, longitude, radiusKm = 5, params = {}) {
     const res = await api.get('/issues/nearby', {
-      params: { latitude, longitude, radiusKm },
+      params: { latitude, longitude, radiusKm, ...params },
     });
+    return res.data;
+  },
+
+  async support(id) {
+    const res = await api.post(`/issues/${id}/support`);
+    return res.data;
+  },
+
+  async removeSupport(id) {
+    const res = await api.delete(`/issues/${id}/support`);
     return res.data;
   },
 };
@@ -156,19 +166,28 @@ export const adminService = {
     return res.data;
   },
 
-  async updateStatus(id, status, adminNote = '') {
-    const res = await api.patch(`/admin/issues/${id}/status`, {
-      status,
-      adminNote,
+  async updateStatus(id, status, adminNote = '', confirmedUrgency) {
+    const body = { status, adminNote };
+    if (confirmedUrgency !== undefined) {
+      body.confirmedUrgency = confirmedUrgency;
+    }
+    const res = await api.patch(`/admin/issues/${id}/status`, body);
+    return res.data;
+  },
+
+  async updateUrgency(id, confirmedUrgency) {
+    const res = await api.patch(`/admin/issues/${id}/urgency`, {
+      confirmedUrgency,
     });
     return res.data;
   },
 
-  async resolve(id, adminNote = '', resolutionImageUrl = '') {
-    const res = await api.post(`/admin/issues/${id}/resolve`, {
-      adminNote,
-      resolutionImageUrl,
-    });
+  async resolve(id, adminNote = '', resolutionImageUrl = '', confirmedUrgency) {
+    const body = { adminNote, resolutionImageUrl };
+    if (confirmedUrgency !== undefined) {
+      body.confirmedUrgency = confirmedUrgency;
+    }
+    const res = await api.post(`/admin/issues/${id}/resolve`, body);
     return res.data;
   },
 

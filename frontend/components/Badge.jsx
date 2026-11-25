@@ -1,21 +1,53 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { COLORS, RADIUS, SPACING, FONT_SIZE } from '../constants/theme';
+import { normalizeStatusLabel } from '../constants/categories';
 
 export default function Badge({
   label,
-  status, // 'Pending' | 'In Progress' | 'Resolved'
+  status, // 'Reported' | 'Under Review' | 'In Progress' | 'Resolved' | 'Pending'
   category,
+  urgency, // 'Normal' | 'High'
   size = 'md', // 'sm' | 'md'
   style,
 }) {
-  const getStatusStyles = () => {
-    switch (status) {
-      case 'Pending':
+  const getStyles = () => {
+    if (urgency) {
+      if (urgency === 'High') {
+        return {
+          bg: COLORS.dangerBg,
+          text: COLORS.danger,
+          border: COLORS.dangerBorder,
+        };
+      }
+      return {
+        bg: COLORS.surfaceAlt,
+        text: COLORS.textSecondary,
+        border: COLORS.border,
+      };
+    }
+
+    if (category) {
+      return {
+        bg: COLORS.surfaceAlt,
+        text: COLORS.textSecondary,
+        border: COLORS.border,
+      };
+    }
+
+    const displayStatus = normalizeStatusLabel(status);
+    switch (displayStatus) {
+      case 'Reported':
         return {
           bg: COLORS.pendingBg,
           text: COLORS.pending,
           border: COLORS.pendingBorder,
+        };
+      case 'Under Review':
+        return {
+          bg: COLORS.underReviewBg,
+          text: COLORS.underReview,
+          border: COLORS.underReviewBorder,
         };
       case 'In Progress':
         return {
@@ -38,7 +70,12 @@ export default function Badge({
     }
   };
 
-  const statusColors = getStatusStyles();
+  const badgeColors = getStyles();
+  const displayText =
+    label ||
+    (urgency ? `${urgency} Urgency` : null) ||
+    (status ? normalizeStatusLabel(status) : null) ||
+    category;
 
   return (
     <View
@@ -46,21 +83,21 @@ export default function Badge({
         styles.badge,
         size === 'sm' ? styles.badgeSm : styles.badgeMd,
         {
-          backgroundColor: statusColors.bg,
-          borderColor: statusColors.border,
+          backgroundColor: badgeColors.bg,
+          borderColor: badgeColors.border,
         },
-        category && styles.categoryBadge,
         style,
       ]}
     >
       <Text
+        numberOfLines={1}
         style={[
           styles.text,
           size === 'sm' ? styles.textSm : styles.textMd,
-          { color: category ? COLORS.textSecondary : statusColors.text },
+          { color: badgeColors.text },
         ]}
       >
-        {label || status || category}
+        {displayText}
       </Text>
     </View>
   );
@@ -81,10 +118,6 @@ const styles = StyleSheet.create({
   badgeMd: {
     paddingHorizontal: SPACING.md,
     paddingVertical: SPACING.xs,
-  },
-  categoryBadge: {
-    backgroundColor: COLORS.surfaceAlt,
-    borderColor: COLORS.border,
   },
   text: {
     fontWeight: '600',

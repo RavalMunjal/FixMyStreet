@@ -19,7 +19,8 @@ import { Ionicons } from '@expo/vector-icons';
 import Header from '../../components/Header';
 import Input from '../../components/Input';
 import Button from '../../components/Button';
-import { CATEGORIES } from '../../constants/categories';
+import MapPinPickerModal from '../../components/MapPinPickerModal';
+import { CATEGORIES, URGENCY_LEVELS } from '../../constants/categories';
 import { uploadService, issueService } from '../../services/api';
 import { COLORS, SPACING, FONT_SIZE, RADIUS } from '../../constants/theme';
 
@@ -28,6 +29,7 @@ export default function ReportIssueScreen() {
 
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState(CATEGORIES[0].id);
+  const [requestedUrgency, setRequestedUrgency] = useState('Normal');
   const [description, setDescription] = useState('');
   const [imageAsset, setImageAsset] = useState(null);
   const [location, setLocation] = useState({
@@ -35,6 +37,9 @@ export default function ReportIssueScreen() {
     longitude: null,
     address: '',
   });
+  const [isManualPin, setIsManualPin] = useState(false);
+  const [mapPickerVisible, setMapPickerVisible] = useState(false);
+
   const [manualLat, setManualLat] = useState('');
   const [manualLng, setManualLng] = useState('');
   const [showManualCoords, setShowManualCoords] = useState(false);
@@ -44,8 +49,10 @@ export default function ReportIssueScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
-  // 1. Fetch Current GPS Location
-  const getCurrentLocation = useCallback(async (silent = false) => {
+  const getCurrentLocation = useCallback(async (silent = false, force = false) => {
+    // Do not overwrite user's confirmed manual map pin on silent background fetches
+    if (isManualPin && !force) return;
+
     try {
       setGettingLocation(true);
       setGpsStatusMessage('Fetching your current GPS coordinates...');
@@ -53,13 +60,12 @@ export default function ReportIssueScreen() {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
         setGpsStatusMessage(
-          'Location permission denied. Enable GPS or enter coordinates manually below.'
+          'Location permission denied. Tap "Pick on Map" or enter coordinates manually.'
         );
-        setShowManualCoords(true);
         if (!silent) {
           Alert.alert(
             'Location Permission Denied',
-            'GPS location helps city workers locate the issue accurately. You can allow permission in Settings or enter coordinates manually.'
+            'You can allow GPS permission in Settings, pick a pin on the map, or enter coordinates manually.'
           );
         }
         return;
@@ -94,11 +100,12 @@ export default function ReportIssueScreen() {
         console.warn('Reverse geocoding error:', geocodeErr);
       }
 
-      setLocation((prev) => ({
+      setLocation({
         latitude,
         longitude,
-        address: prev.address ? prev.address : formattedAddress,
-      }));
+        address: formattedAddress,
+      });
+      setIsManualPin(false);
       setManualLat(latitude.toFixed(6));
       setManualLng(longitude.toFixed(6));
       setGpsStatusMessage('');
@@ -106,25 +113,38 @@ export default function ReportIssueScreen() {
     } catch (e) {
       console.warn('Location error:', e);
       setGpsStatusMessage(
-        'Unable to obtain GPS fix. Tap Retry GPS or enter coordinates manually.'
+        'GPS unavailable. Tap "Pick on Map" or enter coordinates manually.'
       );
-      setShowManualCoords(true);
       if (!silent) {
         Alert.alert(
           'GPS Signal Unavailable',
-          'Could not obtain precise GPS coordinates. Please ensure GPS/Location is turned on or enter coordinates manually.'
+          'Could not obtain precise GPS coordinates. Please pick the location on the map or enter coordinates manually.'
         );
       }
     } finally {
       setGettingLocation(false);
     }
-  }, []);
+  }, [isManualPin]);
 
   useEffect(() => {
-    getCurrentLocation(true);
-  }, [getCurrentLocation]);
+    getCurrentLocation(true, false);
+  }, []);
 
-  // 2. Photo Selection: Camera or Gallery
+  const handleConfirmMapPin = ({ latitude, longitude, address }) => {
+    setLocation({
+      latitude,
+      longitude,
+      address: address || `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`,
+    });
+    setManualLat(latitude.toFixed(6));
+    setManualLng(longitude.toFixed(6));
+    setIsManualPin(true);
+    setShowManualCoords(false);
+    setGpsStatusMessage('');
+    setMapPickerVisible(false);
+    setErrorMessage('');
+  };
+
   const pickImage = async (useCamera = false) => {
     if (submitting) return;
     try {
@@ -180,7 +200,6 @@ export default function ReportIssueScreen() {
     }
   };
 
-  // Resolve active coordinates (GPS or validated manual override)
   const getResolvedCoordinates = () => {
     if (showManualCoords && manualLat.trim() !== '' && manualLng.trim() !== '') {
       const lat = Number(manualLat.trim());
@@ -213,8 +232,10 @@ export default function ReportIssueScreen() {
   const resetForm = () => {
     setTitle('');
     setCategory(CATEGORIES[0].id);
+    setRequestedUrgency('Normal');
     setDescription('');
     setImageAsset(null);
+    setIsManualPin(false);
     setErrorMessage('');
     setLocation((prev) => ({
       ...prev,
@@ -222,7 +243,6 @@ export default function ReportIssueScreen() {
     }));
   };
 
-  // 3. Submit Complaint Form
   const handleSubmit = async () => {
     if (submitting) return;
     setErrorMessage('');
@@ -245,9 +265,8 @@ export default function ReportIssueScreen() {
     const coords = getResolvedCoordinates();
     if (!coords) {
       setErrorMessage(
-        'Valid GPS coordinates are required. Tap "Fetch My GPS" or enter valid latitude (-90..90) and longitude (-180..180).'
+        'Valid location coordinates are required. Use GPS, pick a pin on the map, or enter valid coordinates.'
       );
-      setShowManualCoords(true);
       return;
     }
 
@@ -268,6 +287,7 @@ export default function ReportIssueScreen() {
         title: title.trim(),
         description: description.trim(),
         category,
+        requestedUrgency,
         imageUrl: uploadedImageUrl,
         imagePublicId: uploadedPublicId,
         latitude: coords.latitude,
@@ -288,10 +308,10 @@ export default function ReportIssueScreen() {
 
       Alert.alert(
         'Complaint Submitted!',
-        'Your civic complaint has been saved in MongoDB. Administrators can now review and update its status.',
+        'Your civic complaint has been saved in MongoDB. You can track its progress timeline under My List or All Issues.',
         [
           {
-            text: 'My Reports',
+            text: 'My List',
             onPress: () => router.replace('/(citizen)/my-complaints'),
           },
           {
@@ -332,7 +352,7 @@ export default function ReportIssueScreen() {
           ) : null}
 
           {/* Photo Upload Area */}
-          <Text style={styles.fieldLabel}>Photo Evidence (Required)</Text>
+          <Text style={styles.fieldLabel}>1. Photo Evidence (Required)</Text>
           {imageAsset?.uri ? (
             <View style={styles.imagePreviewContainer}>
               <Image source={{ uri: imageAsset.uri }} style={styles.imagePreview} />
@@ -373,7 +393,7 @@ export default function ReportIssueScreen() {
           )}
 
           {/* Category Selector */}
-          <Text style={styles.fieldLabel}>Category</Text>
+          <Text style={styles.fieldLabel}>2. Issue Category</Text>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -410,9 +430,59 @@ export default function ReportIssueScreen() {
             })}
           </ScrollView>
 
-          {/* Title Input */}
+          {/* Feature 4: Report Urgency Selector */}
+          <Text style={styles.fieldLabel}>3. Urgency Level</Text>
+          <View style={styles.urgencyRow}>
+            {URGENCY_LEVELS.map((u) => {
+              const isSelected = requestedUrgency === u.id;
+              const isHigh = u.id === 'High';
+              return (
+                <TouchableOpacity
+                  key={u.id}
+                  disabled={submitting}
+                  onPress={() => setRequestedUrgency(u.id)}
+                  style={[
+                    styles.urgencyCard,
+                    isSelected &&
+                      (isHigh ? styles.urgencyCardHigh : styles.urgencyCardNormal),
+                  ]}
+                >
+                  <View style={styles.urgencyHeaderRow}>
+                    <Ionicons
+                      name={isHigh ? 'alert-circle' : 'time-outline'}
+                      size={18}
+                      color={
+                        isSelected
+                          ? isHigh
+                            ? COLORS.danger
+                            : COLORS.primary
+                          : COLORS.textSecondary
+                      }
+                    />
+                    <Text
+                      style={[
+                        styles.urgencyTitle,
+                        isSelected &&
+                          (isHigh
+                            ? { color: COLORS.danger }
+                            : { color: COLORS.primary }),
+                      ]}
+                    >
+                      {u.label}
+                    </Text>
+                  </View>
+                  <Text style={styles.urgencyDesc}>{u.description}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          <Text style={styles.emergencyDisclaimer}>
+            Note: High urgency flags are verified by municipal admins and are not a substitute for emergency 112/911 services.
+          </Text>
+
+          {/* Title & Description */}
           <Input
-            label="Issue Title"
+            label="4. Issue Title"
             placeholder="e.g. Deep pothole causing bike accidents"
             value={title}
             onChangeText={(text) => {
@@ -422,9 +492,8 @@ export default function ReportIssueScreen() {
             editable={!submitting}
           />
 
-          {/* Description Input */}
           <Input
-            label="Description"
+            label="5. Description"
             placeholder="Describe how severe the problem is, nearby landmarks, etc."
             value={description}
             onChangeText={(text) => {
@@ -436,49 +505,67 @@ export default function ReportIssueScreen() {
             editable={!submitting}
           />
 
-          {/* GPS Location Section */}
+          {/* Feature 5: GPS & Manual Map Pin Location Section */}
           <View style={styles.locationSection}>
-            <View style={styles.locationHeaderRow}>
-              <Text style={styles.fieldLabel}>GPS Coordinates & Location</Text>
-              <View style={styles.gpsActionRow}>
-                <TouchableOpacity
-                  onPress={() => getCurrentLocation(false)}
-                  disabled={gettingLocation || submitting}
-                  style={styles.gpsFetchBtn}
-                >
-                  {gettingLocation ? (
-                    <ActivityIndicator size="small" color={COLORS.primary} />
-                  ) : (
-                    <>
-                      <Ionicons name="locate" size={16} color={COLORS.primary} />
-                      <Text style={styles.gpsFetchText}>
-                        {hasValidGps ? 'Refresh GPS' : 'Fetch My GPS'}
-                      </Text>
-                    </>
-                  )}
-                </TouchableOpacity>
-              </View>
+            <Text style={styles.fieldLabel}>6. Complaint Location</Text>
+
+            <View style={styles.locationBtnRow}>
+              <TouchableOpacity
+                onPress={() => getCurrentLocation(false, true)}
+                disabled={gettingLocation || submitting}
+                style={styles.locationActionBtn}
+              >
+                {gettingLocation ? (
+                  <ActivityIndicator size="small" color={COLORS.primary} />
+                ) : (
+                  <>
+                    <Ionicons name="locate" size={16} color={COLORS.primary} />
+                    <Text style={styles.locationActionText}>
+                      Use Current GPS
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => setMapPickerVisible(true)}
+                disabled={submitting}
+                style={[styles.locationActionBtn, styles.mapPickerBtn]}
+              >
+                <Ionicons name="pin" size={16} color={COLORS.secondary} />
+                <Text style={[styles.locationActionText, { color: COLORS.secondary }]}>
+                  Pick on Map
+                </Text>
+              </TouchableOpacity>
             </View>
 
             <View style={styles.coordsCard}>
               {hasValidGps ? (
-                <Text style={styles.coordsText}>
-                  Lat: {location.latitude.toFixed(6)} | Long:{' '}
-                  {location.longitude.toFixed(6)}
-                </Text>
+                <View style={styles.coordsStatusRow}>
+                  <Ionicons
+                    name={isManualPin ? 'pin' : 'navigate-circle'}
+                    size={16}
+                    color={isManualPin ? COLORS.secondary : COLORS.primary}
+                  />
+                  <Text style={styles.coordsText}>
+                    {isManualPin ? 'Manual Pin: ' : 'GPS Fix: '}
+                    {location.latitude.toFixed(6)}, {location.longitude.toFixed(6)}
+                  </Text>
+                </View>
               ) : (
                 <Text style={styles.coordsWarningText}>
-                  {gpsStatusMessage || 'Waiting for real GPS coordinates...'}
+                  {gpsStatusMessage || 'Waiting for location coordinates...'}
                 </Text>
               )}
+
               <TouchableOpacity
                 onPress={() => setShowManualCoords((v) => !v)}
                 style={styles.manualToggleBtn}
               >
                 <Text style={styles.manualToggleText}>
                   {showManualCoords
-                    ? 'Hide Manual Coordinates'
-                    : 'Enter Coordinates Manually'}
+                    ? 'Hide Manual Lat/Lng Inputs'
+                    : 'Type Lat/Lng Manually'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -490,7 +577,10 @@ export default function ReportIssueScreen() {
                     label="Latitude"
                     placeholder="e.g. 23.0225"
                     value={manualLat}
-                    onChangeText={setManualLat}
+                    onChangeText={(val) => {
+                      setManualLat(val);
+                      setIsManualPin(true);
+                    }}
                     keyboardType="numbers-and-punctuation"
                     editable={!submitting}
                   />
@@ -500,7 +590,10 @@ export default function ReportIssueScreen() {
                     label="Longitude"
                     placeholder="e.g. 72.5714"
                     value={manualLng}
-                    onChangeText={setManualLng}
+                    onChangeText={(val) => {
+                      setManualLng(val);
+                      setIsManualPin(true);
+                    }}
                     keyboardType="numbers-and-punctuation"
                     editable={!submitting}
                   />
@@ -531,6 +624,14 @@ export default function ReportIssueScreen() {
           />
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* Fullscreen Map Pin Selection Modal */}
+      <MapPinPickerModal
+        visible={mapPickerVisible}
+        initialCoords={location}
+        onClose={() => setMapPickerVisible(false)}
+        onConfirm={handleConfirmMapPin}
+      />
     </SafeAreaView>
   );
 }
@@ -545,7 +646,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: SPACING.md,
-    paddingBottom: SPACING.xxl,
+    paddingBottom: SPACING.xl,
   },
   errorBox: {
     flexDirection: 'row',
@@ -600,7 +701,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: COLORS.primaryLight,
     paddingHorizontal: SPACING.sm,
-    paddingVertical: SPACING.sm,
+    paddingVertical: SPACING.sm + 2,
     borderRadius: RADIUS.md,
   },
   photoOptionText: {
@@ -668,34 +769,78 @@ const styles = StyleSheet.create({
   categoryChipTextSelected: {
     color: '#ffffff',
   },
-  locationSection: {
-    marginTop: SPACING.sm,
-  },
-  locationHeaderRow: {
+  urgencyRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: SPACING.xs,
+    gap: SPACING.sm,
     marginBottom: SPACING.xs,
   },
-  gpsActionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  urgencyCard: {
+    flex: 1,
+    minWidth: 140,
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.md,
+    borderWidth: 1.5,
+    borderColor: COLORS.border,
+    padding: SPACING.sm + 2,
   },
-  gpsFetchBtn: {
+  urgencyCardNormal: {
+    borderColor: COLORS.primary,
+    backgroundColor: '#f0fdfa',
+  },
+  urgencyCardHigh: {
+    borderColor: COLORS.danger,
+    backgroundColor: COLORS.dangerBg,
+  },
+  urgencyHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
+  urgencyTitle: {
+    fontSize: FONT_SIZE.sm,
+    fontWeight: '700',
+    color: COLORS.text,
+  },
+  urgencyDesc: {
+    fontSize: 11,
+    color: COLORS.textSecondary,
+    lineHeight: 15,
+  },
+  emergencyDisclaimer: {
+    fontSize: 11,
+    color: COLORS.textMuted,
+    marginBottom: SPACING.md,
+  },
+  locationSection: {
+    marginTop: SPACING.xs,
+  },
+  locationBtnRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: SPACING.sm,
+    marginBottom: SPACING.sm,
+  },
+  locationActionBtn: {
+    flex: 1,
+    minWidth: 135,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     paddingHorizontal: SPACING.sm,
-    paddingVertical: 6,
+    paddingVertical: SPACING.sm + 2,
     backgroundColor: COLORS.primaryLight,
-    borderRadius: RADIUS.sm,
+    borderRadius: RADIUS.md,
   },
-  gpsFetchText: {
+  mapPickerBtn: {
+    backgroundColor: COLORS.secondaryLight,
+  },
+  locationActionText: {
     fontSize: FONT_SIZE.xs,
     color: COLORS.primary,
     fontWeight: '700',
-    marginLeft: 4,
+    marginLeft: 6,
   },
   coordsCard: {
     backgroundColor: COLORS.surfaceAlt,
@@ -703,7 +848,13 @@ const styles = StyleSheet.create({
     padding: SPACING.sm,
     marginBottom: SPACING.sm,
   },
+  coordsStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
   coordsText: {
+    flex: 1,
     fontSize: FONT_SIZE.xs,
     color: COLORS.text,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
@@ -731,6 +882,6 @@ const styles = StyleSheet.create({
   },
   submitBtn: {
     marginTop: SPACING.md,
-    marginBottom: SPACING.lg,
+    marginBottom: SPACING.md,
   },
 });

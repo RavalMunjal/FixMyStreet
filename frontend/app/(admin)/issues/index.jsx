@@ -30,15 +30,18 @@ export default function AdminIssuesScreen() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
   const [categoryFilter, setCategoryFilter] = useState('All');
+  const [urgencyFilter, setUrgencyFilter] = useState('All');
+  const [sortBy, setSortBy] = useState('newest'); // 'newest' | 'urgency' | 'most_supported'
   const [error, setError] = useState('');
 
   const fetchIssues = useCallback(async () => {
     try {
       setError('');
-      const params = {};
+      const params = { sort: sortBy };
       if (search.trim()) params.search = search.trim();
       if (statusFilter !== 'All') params.status = statusFilter;
       if (categoryFilter !== 'All') params.category = categoryFilter;
+      if (urgencyFilter !== 'All') params.confirmedUrgency = urgencyFilter;
 
       const res = await adminService.getAllIssues(params);
       setIssues(res?.data?.issues || []);
@@ -49,12 +52,12 @@ export default function AdminIssuesScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [search, statusFilter, categoryFilter]);
+  }, [search, statusFilter, categoryFilter, urgencyFilter, sortBy]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
       fetchIssues();
-    }, 300);
+    }, 250);
     return () => clearTimeout(timer);
   }, [fetchIssues]);
 
@@ -75,7 +78,14 @@ export default function AdminIssuesScreen() {
       style={styles.card}
     >
       <View style={styles.cardHeader}>
-        <Badge category={item.category} size="sm" />
+        <View style={styles.badgeWrap}>
+          <Badge category={item.category} size="sm" />
+          {item.confirmedUrgency === 'High' ? (
+            <Badge urgency="High" size="sm" />
+          ) : item.requestedUrgency === 'High' ? (
+            <Badge urgency="High" size="sm" label="Req: High" />
+          ) : null}
+        </View>
         <Badge status={item.status} size="sm" />
       </View>
 
@@ -91,7 +101,8 @@ export default function AdminIssuesScreen() {
             {item.description}
           </Text>
           <Text style={styles.metaText} numberOfLines={1}>
-            Reporter: {item.reportedBy?.name || 'Citizen'}
+            Reporter: {item.reportedBy?.name || 'Citizen'} •{' '}
+            {item.supportCount || 0} supporters
           </Text>
           <Text style={styles.dateText}>
             Submitted: {new Date(item.createdAt).toLocaleDateString()}
@@ -100,7 +111,7 @@ export default function AdminIssuesScreen() {
       </View>
 
       <View style={styles.actionRow}>
-        <Text style={styles.actionPrompt}>Tap to change status / resolve</Text>
+        <Text style={styles.actionPrompt}>Tap to update timeline / urgency / resolve</Text>
         <Ionicons name="create-outline" size={16} color={COLORS.secondary} />
       </View>
     </Card>
@@ -158,7 +169,7 @@ export default function AdminIssuesScreen() {
 
       {/* Status Chips */}
       <View style={styles.statusChipsRow}>
-        {['All', 'Pending', 'In Progress', 'Resolved'].map((st) => {
+        {['All', 'Reported', 'Under Review', 'In Progress', 'Resolved'].map((st) => {
           const isSelected = statusFilter === st;
           return (
             <TouchableOpacity
@@ -170,6 +181,7 @@ export default function AdminIssuesScreen() {
               ]}
             >
               <Text
+                numberOfLines={1}
                 style={[
                   styles.statusFilterText,
                   isSelected && styles.statusFilterTextSelected,
@@ -180,6 +192,59 @@ export default function AdminIssuesScreen() {
             </TouchableOpacity>
           );
         })}
+      </View>
+
+      {/* Urgency Filter & Sort Bar */}
+      <View style={styles.sortUrgencyRow}>
+        <TouchableOpacity
+          onPress={() =>
+            setUrgencyFilter((prev) => (prev === 'High' ? 'All' : 'High'))
+          }
+          style={[
+            styles.urgencyFilterPill,
+            urgencyFilter === 'High' && styles.urgencyFilterPillActive,
+          ]}
+        >
+          <Ionicons
+            name="alert-circle-outline"
+            size={13}
+            color={urgencyFilter === 'High' ? '#ffffff' : COLORS.danger}
+          />
+          <Text
+            style={[
+              styles.urgencyFilterText,
+              urgencyFilter === 'High' && { color: '#ffffff' },
+            ]}
+          >
+            {urgencyFilter === 'High' ? 'High Urgency Only' : 'Filter: High Urgency'}
+          </Text>
+        </TouchableOpacity>
+
+        <View style={styles.sortPillsRow}>
+          {[
+            { id: 'newest', label: 'Newest' },
+            { id: 'urgency', label: 'By Urgency' },
+            { id: 'most_supported', label: 'Top Support' },
+          ].map((s) => {
+            const active = sortBy === s.id;
+            return (
+              <TouchableOpacity
+                key={s.id}
+                onPress={() => setSortBy(s.id)}
+                style={[styles.sortChip, active && styles.sortChipActive]}
+              >
+                <Text
+                  style={[
+                    styles.sortChipText,
+                    active && styles.sortChipTextActive,
+                  ]}
+                >
+                  {s.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
       </View>
 
       {/* Issues List */}
@@ -215,6 +280,8 @@ export default function AdminIssuesScreen() {
                 setSearch('');
                 setStatusFilter('All');
                 setCategoryFilter('All');
+                setUrgencyFilter('All');
+                setSortBy('newest');
               }}
             />
           }
@@ -284,9 +351,8 @@ const styles = StyleSheet.create({
   },
   statusFilterBtn: {
     flexGrow: 1,
-    minWidth: '22%',
     paddingVertical: 6,
-    paddingHorizontal: 6,
+    paddingHorizontal: 8,
     borderRadius: RADIUS.sm,
     backgroundColor: COLORS.surface,
     borderWidth: 1,
@@ -298,15 +364,69 @@ const styles = StyleSheet.create({
     borderColor: COLORS.secondary,
   },
   statusFilterText: {
-    fontSize: FONT_SIZE.xs,
+    fontSize: 11,
     color: COLORS.textSecondary,
     fontWeight: '600',
   },
   statusFilterTextSelected: {
     color: COLORS.secondary,
   },
+  sortUrgencyRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: SPACING.xs,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.xs,
+  },
+  urgencyFilterPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: SPACING.sm + 2,
+    paddingVertical: 4,
+    borderRadius: RADIUS.full,
+    backgroundColor: COLORS.dangerBg,
+    borderWidth: 1,
+    borderColor: COLORS.dangerBorder,
+  },
+  urgencyFilterPillActive: {
+    backgroundColor: COLORS.danger,
+    borderColor: COLORS.danger,
+  },
+  urgencyFilterText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: COLORS.danger,
+  },
+  sortPillsRow: {
+    flexDirection: 'row',
+    gap: 4,
+  },
+  sortChip: {
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 4,
+    borderRadius: RADIUS.full,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  sortChipActive: {
+    backgroundColor: COLORS.secondaryLight,
+    borderColor: COLORS.secondary,
+  },
+  sortChipText: {
+    fontSize: 11,
+    color: COLORS.textSecondary,
+    fontWeight: '600',
+  },
+  sortChipTextActive: {
+    color: COLORS.secondary,
+  },
   listContent: {
     padding: SPACING.md,
+    paddingBottom: SPACING.xl,
   },
   card: {
     padding: SPACING.md,
@@ -314,7 +434,16 @@ const styles = StyleSheet.create({
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: SPACING.xs,
     marginBottom: SPACING.sm,
+  },
+  badgeWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+    flex: 1,
   },
   cardBody: {
     flexDirection: 'row',
