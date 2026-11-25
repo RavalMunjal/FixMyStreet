@@ -27,10 +27,17 @@ export default function LoginScreen() {
   const [errorMessage, setErrorMessage] = useState('');
 
   const handleLogin = async () => {
+    if (loading) return;
     setErrorMessage('');
 
-    if (!email.trim()) {
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) {
       setErrorMessage('Please enter your email address');
+      return;
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      setErrorMessage('Please enter a valid email address');
       return;
     }
 
@@ -41,8 +48,7 @@ export default function LoginScreen() {
 
     try {
       setLoading(true);
-      await login(email.trim(), password);
-      // Navigation is automatically handled by _layout.jsx based on user role
+      await login(trimmedEmail, password);
     } catch (error) {
       setErrorMessage(
         error.message || 'Login failed. Please check your credentials.'
@@ -67,7 +73,7 @@ export default function LoginScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardView}
       >
         <ScrollView
@@ -249,6 +255,8 @@ const styles = StyleSheet.create({
   },
   demoRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
     gap: SPACING.sm,
   },
   demoPill: {
@@ -273,6 +281,7 @@ const styles = StyleSheet.create({
   },
   footerRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'center',
     alignItems: 'center',
     marginTop: SPACING.xl,

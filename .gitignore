@@ -15,6 +15,7 @@ yarn-error.log*
 .expo/
 dist/
 web-build/
+frontend/assets/expo-qr.png
 *.jks
 *.p8
 *.p12

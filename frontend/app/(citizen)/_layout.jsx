@@ -1,9 +1,12 @@
 import React from 'react';
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS } from '../../constants/theme';
 
 export default function CitizenLayout() {
+  const insets = useSafeAreaInsets();
+
   return (
     <Tabs
       screenOptions={{
@@ -13,12 +16,12 @@ export default function CitizenLayout() {
         tabBarStyle: {
           backgroundColor: COLORS.surface,
           borderTopColor: COLORS.border,
-          height: 60,
-          paddingBottom: 8,
-          paddingTop: 8,
+          height: 58 + insets.bottom,
+          paddingBottom: Math.max(insets.bottom, 6),
+          paddingTop: 6,
         },
         tabBarLabelStyle: {
-          fontSize: 11,
+          fontSize: 10,
           fontWeight: '600',
         },
       }}
@@ -28,16 +31,16 @@ export default function CitizenLayout() {
         options={{
           title: 'Home',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="home-outline" size={size} color={color} />
+            <Ionicons name="home-outline" size={size - 2} color={color} />
           ),
         }}
       />
       <Tabs.Screen
         name="issues"
         options={{
-          title: 'All Issues',
+          title: 'Issues',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="list-outline" size={size} color={color} />
+            <Ionicons name="list-outline" size={size - 2} color={color} />
           ),
         }}
       />
@@ -46,7 +49,7 @@ export default function CitizenLayout() {
         options={{
           title: 'Report',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="add-circle" size={size + 4} color={COLORS.primary} />
+            <Ionicons name="add-circle" size={size + 2} color={COLORS.primary} />
           ),
         }}
       />
@@ -55,16 +58,16 @@ export default function CitizenLayout() {
         options={{
           title: 'Map',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="map-outline" size={size} color={color} />
+            <Ionicons name="map-outline" size={size - 2} color={color} />
           ),
         }}
       />
       <Tabs.Screen
         name="my-complaints"
         options={{
-          title: 'My Reports',
+          title: 'My List',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="document-text-outline" size={size} color={color} />
+            <Ionicons name="document-text-outline" size={size - 2} color={color} />
           ),
         }}
       />
@@ -73,7 +76,7 @@ export default function CitizenLayout() {
         options={{
           title: 'Profile',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="person-outline" size={size} color={color} />
+            <Ionicons name="person-outline" size={size - 2} color={color} />
           ),
         }}
       />

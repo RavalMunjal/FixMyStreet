@@ -1,10 +1,42 @@
 const Issue = require('../models/Issue');
+const { checkDB, escapeRegex, parsePagination } = require('../utils/helpers');
 
-// @desc    Get all issues with optional filtering & search
+const parseValidCoordinates = (latitude, longitude) => {
+  if (
+    latitude === undefined ||
+    latitude === null ||
+    latitude === '' ||
+    longitude === undefined ||
+    longitude === null ||
+    longitude === ''
+  ) {
+    return null;
+  }
+
+  const lat = Number(latitude);
+  const lng = Number(longitude);
+
+  if (
+    !Number.isFinite(lat) ||
+    !Number.isFinite(lng) ||
+    lat < -90 ||
+    lat > 90 ||
+    lng < -180 ||
+    lng > 180
+  ) {
+    return null;
+  }
+
+  return { lat, lng };
+};
+
+// @desc    Get all issues with optional filtering & search + real MongoDB counts
 // @route   GET /api/issues
 // @access  Public
 const getIssues = async (req, res, next) => {
   try {
+    if (!checkDB(res)) return;
+
     const { category, status, search, limit = 50, page = 1 } = req.query;
 
     const query = {};
@@ -18,7 +50,7 @@ const getIssues = async (req, res, next) => {
     }
 
     if (search && search.trim() !== '') {
-      const searchRegex = new RegExp(search.trim(), 'i');
+      const searchRegex = new RegExp(escapeRegex(search.trim()), 'i');
       query.$or = [
         { title: searchRegex },
         { description: searchRegex },
@@ -26,23 +58,35 @@ const getIssues = async (req, res, next) => {
       ];
     }
 
-    const skip = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+    const pagination = parsePagination(page, limit, 100);
 
-    const issues = await Issue.find(query)
-      .populate('reportedBy', 'name email')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(parseInt(limit, 10));
-
-    const total = await Issue.countDocuments(query);
+    const [issues, total, totalAll, pendingCount, inProgressCount, resolvedCount] =
+      await Promise.all([
+        Issue.find(query)
+          .populate('reportedBy', 'name email')
+          .sort({ createdAt: -1 })
+          .skip(pagination.skip)
+          .limit(pagination.limit),
+        Issue.countDocuments(query),
+        Issue.countDocuments(),
+        Issue.countDocuments({ status: 'Pending' }),
+        Issue.countDocuments({ status: 'In Progress' }),
+        Issue.countDocuments({ status: 'Resolved' }),
+      ]);
 
     res.status(200).json({
       success: true,
       message: 'Issues retrieved successfully',
       data: {
         total,
-        page: parseInt(page, 10),
+        page: pagination.page,
         count: issues.length,
+        stats: {
+          total: totalAll,
+          pending: pendingCount,
+          inProgress: inProgressCount,
+          resolved: resolvedCount,
+        },
         issues,
       },
     });
@@ -56,6 +100,8 @@ const getIssues = async (req, res, next) => {
 // @access  Public
 const getIssueById = async (req, res, next) => {
   try {
+    if (!checkDB(res)) return;
+
     const issue = await Issue.findById(req.params.id)
       .populate('reportedBy', 'name email role')
       .populate('statusHistory.updatedBy', 'name email role');
@@ -84,6 +130,8 @@ const getIssueById = async (req, res, next) => {
 // @access  Private (Citizen)
 const createIssue = async (req, res, next) => {
   try {
+    if (!checkDB(res)) return;
+
     const {
       title,
       description,
@@ -95,8 +143,15 @@ const createIssue = async (req, res, next) => {
       address,
     } = req.body;
 
-    // Validation
-    if (!title || !description || !category || !imageUrl) {
+    if (
+      !title ||
+      !title.trim() ||
+      !description ||
+      !description.trim() ||
+      !category ||
+      !imageUrl ||
+      !String(imageUrl).trim()
+    ) {
       return res.status(400).json({
         success: false,
         message:
@@ -104,10 +159,11 @@ const createIssue = async (req, res, next) => {
       });
     }
 
-    if (latitude === undefined || longitude === undefined || isNaN(latitude) || isNaN(longitude)) {
+    const coords = parseValidCoordinates(latitude, longitude);
+    if (!coords) {
       return res.status(400).json({
         success: false,
-        message: 'Valid GPS latitude and longitude coordinates are required',
+        message: 'Valid GPS latitude (-90..90) and longitude (-180..180) coordinates are required',
       });
     }
 
@@ -115,11 +171,11 @@ const createIssue = async (req, res, next) => {
       title: title.trim(),
       description: description.trim(),
       category,
-      imageUrl,
+      imageUrl: String(imageUrl).trim(),
       imagePublicId: imagePublicId || '',
-      latitude: parseFloat(latitude),
-      longitude: parseFloat(longitude),
-      address: address ? address.trim() : 'Location captured via GPS',
+      latitude: coords.lat,
+      longitude: coords.lng,
+      address: address && address.trim() ? address.trim() : 'Location captured via GPS',
       status: 'Pending',
       reportedBy: req.user._id,
       statusHistory: [
@@ -154,6 +210,8 @@ const createIssue = async (req, res, next) => {
 // @access  Private (Citizen)
 const getMyIssues = async (req, res, next) => {
   try {
+    if (!checkDB(res)) return;
+
     const issues = await Issue.find({ reportedBy: req.user._id })
       .populate('reportedBy', 'name email')
       .sort({ createdAt: -1 });
@@ -176,26 +234,27 @@ const getMyIssues = async (req, res, next) => {
 // @access  Public
 const getNearbyIssues = async (req, res, next) => {
   try {
-    const { latitude, longitude, radiusKm = 15 } = req.query;
+    if (!checkDB(res)) return;
 
-    if (!latitude || !longitude) {
+    const { latitude, longitude, radiusKm = 15 } = req.query;
+    const coords = parseValidCoordinates(latitude, longitude);
+
+    if (!coords) {
       return res.status(400).json({
         success: false,
-        message: 'Latitude and longitude coordinates are required for nearby query',
+        message: 'Valid latitude and longitude coordinates are required for nearby query',
       });
     }
 
-    const lat = parseFloat(latitude);
-    const lng = parseFloat(longitude);
-    const radius = parseFloat(radiusKm);
+    const parsedRadius = Math.max(0.1, Number(radiusKm) || 15);
+    const cosLat = Math.max(Math.abs(Math.cos((coords.lat * Math.PI) / 180)), 0.01);
 
-    // Approximate bounding box calculation: 1 deg lat ~ 111km, 1 deg lng ~ 111 * cos(lat) km
-    const latDelta = radius / 111;
-    const lngDelta = radius / (111 * Math.cos((lat * Math.PI) / 180));
+    const latDelta = parsedRadius / 111;
+    const lngDelta = parsedRadius / (111 * cosLat);
 
     const issues = await Issue.find({
-      latitude: { $gte: lat - latDelta, $lte: lat + latDelta },
-      longitude: { $gte: lng - lngDelta, $lte: lng + lngDelta },
+      latitude: { $gte: coords.lat - latDelta, $lte: coords.lat + latDelta },
+      longitude: { $gte: coords.lng - lngDelta, $lte: coords.lng + lngDelta },
     })
       .populate('reportedBy', 'name email')
       .sort({ createdAt: -1 })

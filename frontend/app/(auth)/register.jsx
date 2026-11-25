@@ -28,15 +28,19 @@ export default function RegisterScreen() {
   const [errorMessage, setErrorMessage] = useState('');
 
   const handleRegister = async () => {
+    if (loading) return;
     setErrorMessage('');
 
-    if (!name.trim()) {
-      setErrorMessage('Please enter your full name');
+    const trimmedName = name.trim();
+    const trimmedEmail = email.trim();
+
+    if (trimmedName.length < 2) {
+      setErrorMessage('Please enter your full name (at least 2 characters)');
       return;
     }
 
-    if (!email.trim()) {
-      setErrorMessage('Please enter your email address');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      setErrorMessage('Please enter a valid email address');
       return;
     }
 
@@ -52,8 +56,7 @@ export default function RegisterScreen() {
 
     try {
       setLoading(true);
-      await register(name.trim(), email.trim(), password, confirmPassword);
-      // Navigation is automatically handled by _layout.jsx
+      await register(trimmedName, trimmedEmail, password, confirmPassword);
     } catch (error) {
       setErrorMessage(
         error.message || 'Registration failed. Please check your information.'
@@ -66,7 +69,7 @@ export default function RegisterScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardView}
       >
         <ScrollView
@@ -238,6 +241,7 @@ const styles = StyleSheet.create({
   },
   footerRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'center',
     alignItems: 'center',
     marginTop: SPACING.lg,

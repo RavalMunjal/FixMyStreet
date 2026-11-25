@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,8 +7,11 @@ import {
   TouchableOpacity,
   Alert,
   Modal,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
 import Header from '../../components/Header';
@@ -39,13 +42,8 @@ export default function ProfileScreen() {
   const [updating, setUpdating] = useState(false);
   const [editError, setEditError] = useState('');
 
-  useEffect(() => {
-    fetchProfileData();
-  }, []);
-
-  const fetchProfileData = async () => {
+  const fetchProfileData = useCallback(async () => {
     try {
-      setLoading(true);
       const res = await userService.getProfile();
       if (res?.data?.stats) {
         setStats(res.data.stats);
@@ -59,7 +57,13 @@ export default function ProfileScreen() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchProfileData();
+    }, [fetchProfileData])
+  );
 
   const handleUpdateProfile = async () => {
     setEditError('');
@@ -82,6 +86,8 @@ export default function ProfileScreen() {
 
       await userService.updateProfile(payload);
       await refreshUser();
+      setCurrentPassword('');
+      setNewPassword('');
       setEditModalVisible(false);
       Alert.alert('Success', 'Profile updated successfully!');
     } catch (error) {
@@ -118,7 +124,7 @@ export default function ProfileScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <Header title="Citizen Profile" subtitle="Account settings & statistics" />
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
@@ -225,7 +231,10 @@ export default function ProfileScreen() {
         transparent
         onRequestClose={() => setEditModalVisible(false)}
       >
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlay}
+        >
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Edit Profile</Text>
@@ -287,7 +296,7 @@ export default function ProfileScreen() {
               />
             </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );
@@ -357,11 +366,13 @@ const styles = StyleSheet.create({
   },
   statsRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: SPACING.sm,
     marginBottom: SPACING.lg,
   },
   statBox: {
     flex: 1,
+    minWidth: '45%',
     backgroundColor: COLORS.surface,
     borderRadius: RADIUS.md,
     borderWidth: 1,

@@ -1,12 +1,14 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   FlatList,
   RefreshControl,
+  TouchableOpacity,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../../components/Header';
 import Card from '../../components/Card';
@@ -19,22 +21,27 @@ export default function AdminUsersScreen() {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState('');
 
   const fetchUsers = useCallback(async () => {
     try {
+      setError('');
       const res = await adminService.getUsers();
       setUsers(res?.data?.users || []);
     } catch (e) {
       console.warn('Error fetching users:', e);
+      setError(e.message || 'Unable to load citizen accounts. Pull down to retry.');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   }, []);
 
-  useEffect(() => {
-    fetchUsers();
-  }, [fetchUsers]);
+  useFocusEffect(
+    useCallback(() => {
+      fetchUsers();
+    }, [fetchUsers])
+  );
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -50,8 +57,12 @@ export default function AdminUsersScreen() {
           </Text>
         </View>
         <View style={styles.infoCol}>
-          <Text style={styles.userName}>{item.name}</Text>
-          <Text style={styles.userEmail}>{item.email}</Text>
+          <Text style={styles.userName} numberOfLines={1}>
+            {item.name}
+          </Text>
+          <Text style={styles.userEmail} numberOfLines={1}>
+            {item.email}
+          </Text>
           <Text style={styles.joinDate}>
             Joined: {new Date(item.createdAt).toLocaleDateString()}
           </Text>
@@ -67,7 +78,7 @@ export default function AdminUsersScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <Header
         title="Registered Citizens"
         subtitle={`${users.length} active citizens registered`}
@@ -75,6 +86,13 @@ export default function AdminUsersScreen() {
 
       {loading && !refreshing ? (
         <Loading message="Loading citizen accounts..." fullScreen />
+      ) : error ? (
+        <View style={styles.errorBox}>
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity onPress={fetchUsers} style={styles.retryBtn}>
+            <Text style={styles.retryText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
       ) : (
         <FlatList
           data={users}
@@ -133,6 +151,7 @@ const styles = StyleSheet.create({
   },
   infoCol: {
     flex: 1,
+    marginRight: SPACING.sm,
   },
   userName: {
     fontSize: FONT_SIZE.md,
@@ -162,5 +181,27 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZE.xs,
     fontWeight: '700',
     color: COLORS.primary,
+  },
+  errorBox: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: SPACING.xl,
+  },
+  errorText: {
+    color: COLORS.danger,
+    fontSize: FONT_SIZE.sm,
+    textAlign: 'center',
+    marginBottom: SPACING.md,
+  },
+  retryBtn: {
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.sm,
+    backgroundColor: COLORS.secondary,
+    borderRadius: RADIUS.md,
+  },
+  retryText: {
+    color: '#ffffff',
+    fontWeight: '600',
   },
 });

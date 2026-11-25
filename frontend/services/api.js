@@ -2,10 +2,16 @@ import axios from 'axios';
 import { API_BASE_URL } from '../constants/config';
 import { tokenStorage } from './storage';
 
+let unauthorizedHandler = null;
+
+export const setUnauthorizedHandler = (handler) => {
+  unauthorizedHandler = handler;
+};
+
 // Create base Axios instance
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 20000,
+  timeout: 15000,
   headers: {
     'Content-Type': 'application/json',
     Accept: 'application/json',
@@ -28,14 +34,13 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// Response Interceptor: centralized error extraction
+// Response Interceptor: centralized error extraction & 401 session cleanup
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     let message = 'An unexpected error occurred. Please try again.';
 
     if (error.response) {
-      // Server returned an error code
       if (error.response.data && error.response.data.message) {
         message = error.response.data.message;
       } else if (error.response.status === 401) {
@@ -47,10 +52,18 @@ api.interceptors.response.use(
       } else if (error.response.status >= 500) {
         message = 'Server error. Please try again later.';
       }
+
+      // Trigger automatic logout on expired/invalid JWT for authenticated routes
+      const reqUrl = error.config?.url || '';
+      const isAuthEndpoint =
+        reqUrl.includes('/auth/login') || reqUrl.includes('/auth/register');
+      if (error.response.status === 401 && !isAuthEndpoint && unauthorizedHandler) {
+        unauthorizedHandler();
+      }
+    } else if (error.code === 'ECONNABORTED') {
+      message = `Request timed out connecting to ${API_BASE_URL}. Please check your server.`;
     } else if (error.request) {
-      // Network error or server unreachable
-      message =
-        'Cannot connect to FixMyStreet server. Please check your internet connection or backend URL.';
+      message = `Cannot connect to FixMyStreet server (${API_BASE_URL}). Verify PC & phone are on the same Wi-Fi and backend is running.`;
     }
 
     const enhancedError = new Error(message);
@@ -80,8 +93,10 @@ export const authService = {
     return res.data;
   },
 
-  async getMe() {
-    const res = await api.get('/auth/me');
+  async getMe(options = {}) {
+    const res = await api.get('/auth/me', {
+      timeout: options.timeout || 10000,
+    });
     return res.data;
   },
 };
@@ -164,26 +179,99 @@ export const adminService = {
 };
 
 // ================= UPLOAD SERVICE =================
+const normalizeMimeAndName = (imageInput) => {
+  const isAssetObj = typeof imageInput === 'object' && imageInput !== null;
+  const uri = isAssetObj ? imageInput.uri : imageInput;
+  const rawName =
+    (isAssetObj && imageInput.fileName) ||
+    (uri ? uri.split('?')[0].split('/').pop() : '') ||
+    `photo_${Date.now()}.jpg`;
+
+  let mimeType = isAssetObj && imageInput.mimeType
+    ? imageInput.mimeType.toLowerCase()
+    : '';
+
+  if (!mimeType) {
+    const extMatch = /\.(\w+)$/.exec(rawName);
+    const ext = extMatch ? extMatch[1].toLowerCase() : 'jpg';
+    if (ext === 'png') mimeType = 'image/png';
+    else if (ext === 'webp') mimeType = 'image/webp';
+    else mimeType = 'image/jpeg';
+  }
+
+  if (mimeType === 'image/jpg') {
+    mimeType = 'image/jpeg';
+  }
+
+  const fileSize = isAssetObj ? imageInput.fileSize : null;
+  return { uri, filename: rawName, mimeType, fileSize };
+};
+
 export const uploadService = {
-  async uploadImage(imageUri) {
+  async uploadImage(imageInput) {
+    const { uri, filename, mimeType, fileSize } = normalizeMimeAndName(imageInput);
+
+    if (!uri) {
+      throw new Error('No photo selected for upload.');
+    }
+
+    if (fileSize && fileSize > 5 * 1024 * 1024) {
+      throw new Error('Selected photo exceeds the 5MB upload size limit.');
+    }
+
+    const token = await tokenStorage.getToken();
+    if (!token) {
+      throw new Error('Authentication required before uploading photo.');
+    }
+
     const formData = new FormData();
-    const filename = imageUri.split('/').pop() || `photo_${Date.now()}.jpg`;
-    const match = /\.(\w+)$/.exec(filename);
-    const type = match ? `image/${match[1]}` : 'image/jpeg';
-
     formData.append('image', {
-      uri: imageUri,
+      uri,
       name: filename,
-      type,
+      type: mimeType,
     });
 
-    const res = await api.post('/uploads/image', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    });
+    // Use native fetch so React Native sets the exact multipart boundary reliably
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
 
-    return res.data;
+    try {
+      const response = await fetch(`${API_BASE_URL}/uploads/image`, {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: formData,
+        signal: controller.signal,
+      });
+
+      const responseText = await response.text();
+      let parsed = {};
+      try {
+        parsed = responseText ? JSON.parse(responseText) : {};
+      } catch (e) {
+        parsed = { message: responseText || 'Unexpected upload response' };
+      }
+
+      if (!response.ok) {
+        if (response.status === 401 && unauthorizedHandler) {
+          unauthorizedHandler();
+        }
+        throw new Error(
+          parsed.message || `Image upload failed with status ${response.status}`
+        );
+      }
+
+      return parsed;
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        throw new Error('Image upload timed out. Please try again on a stronger connection.');
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeoutId);
+    }
   },
 };
 

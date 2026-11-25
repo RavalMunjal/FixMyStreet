@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,8 @@ import {
   Image,
   Alert,
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -27,19 +29,104 @@ export default function ReportIssueScreen() {
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState(CATEGORIES[0].id);
   const [description, setDescription] = useState('');
-  const [imageUri, setImageUri] = useState(null);
+  const [imageAsset, setImageAsset] = useState(null);
   const [location, setLocation] = useState({
-    latitude: 23.0225,
-    longitude: 72.5714,
+    latitude: null,
+    longitude: null,
     address: '',
   });
+  const [manualLat, setManualLat] = useState('');
+  const [manualLng, setManualLng] = useState('');
+  const [showManualCoords, setShowManualCoords] = useState(false);
+  const [gpsStatusMessage, setGpsStatusMessage] = useState('');
 
   const [gettingLocation, setGettingLocation] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
-  // 1. Photo Selection: Camera or Gallery
+  // 1. Fetch Current GPS Location
+  const getCurrentLocation = useCallback(async (silent = false) => {
+    try {
+      setGettingLocation(true);
+      setGpsStatusMessage('Fetching your current GPS coordinates...');
+
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        setGpsStatusMessage(
+          'Location permission denied. Enable GPS or enter coordinates manually below.'
+        );
+        setShowManualCoords(true);
+        if (!silent) {
+          Alert.alert(
+            'Location Permission Denied',
+            'GPS location helps city workers locate the issue accurately. You can allow permission in Settings or enter coordinates manually.'
+          );
+        }
+        return;
+      }
+
+      const currentLocation = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+
+      const { latitude, longitude } = currentLocation.coords;
+
+      let formattedAddress = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+      try {
+        const addresses = await Location.reverseGeocodeAsync({
+          latitude,
+          longitude,
+        });
+        if (addresses && addresses.length > 0) {
+          const item = addresses[0];
+          const parts = [
+            item.name,
+            item.street,
+            item.district || item.subregion,
+            item.city,
+            item.postalCode,
+          ].filter(Boolean);
+          if (parts.length > 0) {
+            formattedAddress = parts.join(', ');
+          }
+        }
+      } catch (geocodeErr) {
+        console.warn('Reverse geocoding error:', geocodeErr);
+      }
+
+      setLocation((prev) => ({
+        latitude,
+        longitude,
+        address: prev.address ? prev.address : formattedAddress,
+      }));
+      setManualLat(latitude.toFixed(6));
+      setManualLng(longitude.toFixed(6));
+      setGpsStatusMessage('');
+      setShowManualCoords(false);
+    } catch (e) {
+      console.warn('Location error:', e);
+      setGpsStatusMessage(
+        'Unable to obtain GPS fix. Tap Retry GPS or enter coordinates manually.'
+      );
+      setShowManualCoords(true);
+      if (!silent) {
+        Alert.alert(
+          'GPS Signal Unavailable',
+          'Could not obtain precise GPS coordinates. Please ensure GPS/Location is turned on or enter coordinates manually.'
+        );
+      }
+    } finally {
+      setGettingLocation(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    getCurrentLocation(true);
+  }, [getCurrentLocation]);
+
+  // 2. Photo Selection: Camera or Gallery
   const pickImage = async (useCamera = false) => {
+    if (submitting) return;
     try {
       let result;
       if (useCamera) {
@@ -52,10 +139,10 @@ export default function ReportIssueScreen() {
           return;
         }
         result = await ImagePicker.launchCameraAsync({
-          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          mediaTypes: ['images'],
           allowsEditing: true,
           aspect: [4, 3],
-          quality: 0.7,
+          quality: 0.65,
         });
       } else {
         const { status } =
@@ -68,15 +155,23 @@ export default function ReportIssueScreen() {
           return;
         }
         result = await ImagePicker.launchImageLibraryAsync({
-          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          mediaTypes: ['images'],
           allowsEditing: true,
           aspect: [4, 3],
-          quality: 0.7,
+          quality: 0.65,
         });
       }
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        setImageUri(result.assets[0].uri);
+        const selected = result.assets[0];
+        if (selected.fileSize && selected.fileSize > 5 * 1024 * 1024) {
+          Alert.alert(
+            'Photo Too Large',
+            'Please choose an image smaller than 5MB.'
+          );
+          return;
+        }
+        setImageAsset(selected);
         setErrorMessage('');
       }
     } catch (e) {
@@ -85,88 +180,82 @@ export default function ReportIssueScreen() {
     }
   };
 
-  // 2. Fetch Current GPS Location
-  const getCurrentLocation = async () => {
-    try {
-      setGettingLocation(true);
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert(
-          'Location Permission Denied',
-          'GPS location helps city workers locate the issue accurately. You can still type the address manually.'
-        );
-        return;
+  // Resolve active coordinates (GPS or validated manual override)
+  const getResolvedCoordinates = () => {
+    if (showManualCoords && manualLat.trim() !== '' && manualLng.trim() !== '') {
+      const lat = Number(manualLat.trim());
+      const lng = Number(manualLng.trim());
+      if (
+        Number.isFinite(lat) &&
+        Number.isFinite(lng) &&
+        lat >= -90 &&
+        lat <= 90 &&
+        lng >= -180 &&
+        lng <= 180
+      ) {
+        return { latitude: lat, longitude: lng };
       }
-
-      const currentLocation = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
-
-      const { latitude, longitude } = currentLocation.coords;
-
-      // Reverse geocode to street address
-      let formattedAddress = `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
-      try {
-        const addresses = await Location.reverseGeocodeAsync({
-          latitude,
-          longitude,
-        });
-        if (addresses && addresses.length > 0) {
-          const item = addresses[0];
-          formattedAddress = [
-            item.name,
-            item.street,
-            item.district || item.subregion,
-            item.city,
-            item.postalCode,
-          ]
-            .filter(Boolean)
-            .join(', ');
-        }
-      } catch (geocodeErr) {
-        console.warn('Geocoding error:', geocodeErr);
-      }
-
-      setLocation({
-        latitude,
-        longitude,
-        address: formattedAddress,
-      });
-    } catch (e) {
-      console.warn('Location error:', e);
-      Alert.alert(
-        'GPS Signal Unavailable',
-        'Could not obtain precise GPS coordinates. Please enter location manually.'
-      );
-    } finally {
-      setGettingLocation(false);
+      return null;
     }
+
+    if (
+      typeof location.latitude === 'number' &&
+      typeof location.longitude === 'number' &&
+      Number.isFinite(location.latitude) &&
+      Number.isFinite(location.longitude)
+    ) {
+      return { latitude: location.latitude, longitude: location.longitude };
+    }
+
+    return null;
+  };
+
+  const resetForm = () => {
+    setTitle('');
+    setCategory(CATEGORIES[0].id);
+    setDescription('');
+    setImageAsset(null);
+    setErrorMessage('');
+    setLocation((prev) => ({
+      ...prev,
+      address: '',
+    }));
   };
 
   // 3. Submit Complaint Form
   const handleSubmit = async () => {
+    if (submitting) return;
     setErrorMessage('');
 
+    if (!imageAsset?.uri) {
+      setErrorMessage('Please take or select a photo of the problem.');
+      return;
+    }
+
     if (!title.trim()) {
-      setErrorMessage('Please provide a title for the issue');
+      setErrorMessage('Please provide a title for the issue.');
       return;
     }
 
     if (!description.trim()) {
-      setErrorMessage('Please describe the problem in detail');
+      setErrorMessage('Please describe the problem in detail.');
       return;
     }
 
-    if (!imageUri) {
-      setErrorMessage('Please take or select a photo of the problem');
+    const coords = getResolvedCoordinates();
+    if (!coords) {
+      setErrorMessage(
+        'Valid GPS coordinates are required. Tap "Fetch My GPS" or enter valid latitude (-90..90) and longitude (-180..180).'
+      );
+      setShowManualCoords(true);
       return;
     }
 
     try {
       setSubmitting(true);
 
-      // Step A: Upload image to Cloudinary / backend storage
-      const uploadRes = await uploadService.uploadImage(imageUri);
+      // Step A: Upload image to backend / Cloudinary
+      const uploadRes = await uploadService.uploadImage(imageAsset);
       const uploadedImageUrl = uploadRes?.data?.url;
       const uploadedPublicId = uploadRes?.data?.public_id || '';
 
@@ -174,27 +263,40 @@ export default function ReportIssueScreen() {
         throw new Error('Image upload failed to return a valid URL.');
       }
 
-      // Step B: Submit Complaint payload to MongoDB
+      // Step B: Save Complaint to MongoDB
       const payload = {
         title: title.trim(),
         description: description.trim(),
         category,
         imageUrl: uploadedImageUrl,
         imagePublicId: uploadedPublicId,
-        latitude: location.latitude,
-        longitude: location.longitude,
-        address: location.address || 'Reported via GPS',
+        latitude: coords.latitude,
+        longitude: coords.longitude,
+        address:
+          location.address.trim() ||
+          `${coords.latitude.toFixed(5)}, ${coords.longitude.toFixed(5)}`,
       };
 
       const issueRes = await issueService.create(payload);
+      if (!issueRes?.success || !issueRes?.data?.issue?._id) {
+        throw new Error(
+          issueRes?.message || 'Complaint could not be confirmed in database.'
+        );
+      }
+
+      resetForm();
 
       Alert.alert(
         'Complaint Submitted!',
-        'Your civic complaint has been registered in the system. Authorized administrators will inspect and update the status.',
+        'Your civic complaint has been saved in MongoDB. Administrators can now review and update its status.',
         [
           {
-            text: 'View All Issues',
-            onPress: () => router.push('/(citizen)/issues'),
+            text: 'My Reports',
+            onPress: () => router.replace('/(citizen)/my-complaints'),
+          },
+          {
+            text: 'All Issues',
+            onPress: () => router.replace('/(citizen)/issues'),
           },
         ]
       );
@@ -208,160 +310,227 @@ export default function ReportIssueScreen() {
     }
   };
 
+  const hasValidGps =
+    typeof location.latitude === 'number' && typeof location.longitude === 'number';
+
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <Header title="Report a Street Issue" subtitle="File a civic complaint" />
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.keyboardView}
       >
-        {errorMessage ? (
-          <View style={styles.errorBox}>
-            <Ionicons name="alert-circle" size={18} color={COLORS.danger} />
-            <Text style={styles.errorText}>{errorMessage}</Text>
-          </View>
-        ) : null}
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+        >
+          {errorMessage ? (
+            <View style={styles.errorBox}>
+              <Ionicons name="alert-circle" size={18} color={COLORS.danger} />
+              <Text style={styles.errorText}>{errorMessage}</Text>
+            </View>
+          ) : null}
 
-        {/* Photo Upload Area */}
-        <Text style={styles.fieldLabel}>Photo Evidence (Required)</Text>
-        {imageUri ? (
-          <View style={styles.imagePreviewContainer}>
-            <Image source={{ uri: imageUri }} style={styles.imagePreview} />
-            <TouchableOpacity
-              style={styles.changePhotoBtn}
-              onPress={() => setImageUri(null)}
-            >
-              <Ionicons name="trash-outline" size={16} color="#ffffff" />
-              <Text style={styles.changePhotoText}>Remove</Text>
-            </TouchableOpacity>
-          </View>
-        ) : (
-          <View style={styles.photoPickerBox}>
-            <Text style={styles.photoPickerPrompt}>
-              Upload a clear photo of the street problem
-            </Text>
-            <View style={styles.photoBtnRow}>
+          {/* Photo Upload Area */}
+          <Text style={styles.fieldLabel}>Photo Evidence (Required)</Text>
+          {imageAsset?.uri ? (
+            <View style={styles.imagePreviewContainer}>
+              <Image source={{ uri: imageAsset.uri }} style={styles.imagePreview} />
               <TouchableOpacity
-                style={styles.photoOptionBtn}
-                onPress={() => pickImage(true)}
+                style={styles.changePhotoBtn}
+                disabled={submitting}
+                onPress={() => setImageAsset(null)}
               >
-                <Ionicons name="camera" size={24} color={COLORS.primary} />
-                <Text style={styles.photoOptionText}>Take Camera Photo</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.photoOptionBtn}
-                onPress={() => pickImage(false)}
-              >
-                <Ionicons name="images" size={24} color={COLORS.primary} />
-                <Text style={styles.photoOptionText}>Choose from Gallery</Text>
+                <Ionicons name="trash-outline" size={16} color="#ffffff" />
+                <Text style={styles.changePhotoText}>Remove</Text>
               </TouchableOpacity>
             </View>
-          </View>
-        )}
+          ) : (
+            <View style={styles.photoPickerBox}>
+              <Text style={styles.photoPickerPrompt}>
+                Upload a clear photo of the street problem (max 5MB)
+              </Text>
+              <View style={styles.photoBtnRow}>
+                <TouchableOpacity
+                  style={styles.photoOptionBtn}
+                  disabled={submitting}
+                  onPress={() => pickImage(true)}
+                >
+                  <Ionicons name="camera" size={20} color={COLORS.primary} />
+                  <Text style={styles.photoOptionText}>Camera Photo</Text>
+                </TouchableOpacity>
 
-        {/* Category Selector */}
-        <Text style={styles.fieldLabel}>Category</Text>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.categoryScroll}
-        >
-          {CATEGORIES.map((cat) => {
-            const isSelected = category === cat.id;
-            return (
-              <TouchableOpacity
-                key={cat.id}
-                onPress={() => setCategory(cat.id)}
-                style={[
-                  styles.categoryChip,
-                  isSelected && styles.categoryChipSelected,
-                ]}
-              >
-                <Ionicons
-                  name={cat.icon}
-                  size={16}
-                  color={isSelected ? '#ffffff' : COLORS.text}
-                  style={styles.catChipIcon}
-                />
-                <Text
+                <TouchableOpacity
+                  style={styles.photoOptionBtn}
+                  disabled={submitting}
+                  onPress={() => pickImage(false)}
+                >
+                  <Ionicons name="images" size={20} color={COLORS.primary} />
+                  <Text style={styles.photoOptionText}>Choose Gallery</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
+          {/* Category Selector */}
+          <Text style={styles.fieldLabel}>Category</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.categoryScroll}
+          >
+            {CATEGORIES.map((cat) => {
+              const isSelected = category === cat.id;
+              return (
+                <TouchableOpacity
+                  key={cat.id}
+                  disabled={submitting}
+                  onPress={() => setCategory(cat.id)}
                   style={[
-                    styles.categoryChipText,
-                    isSelected && styles.categoryChipTextSelected,
+                    styles.categoryChip,
+                    isSelected && styles.categoryChipSelected,
                   ]}
                 >
-                  {cat.label}
+                  <Ionicons
+                    name={cat.icon}
+                    size={16}
+                    color={isSelected ? '#ffffff' : COLORS.text}
+                    style={styles.catChipIcon}
+                  />
+                  <Text
+                    style={[
+                      styles.categoryChipText,
+                      isSelected && styles.categoryChipTextSelected,
+                    ]}
+                  >
+                    {cat.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+
+          {/* Title Input */}
+          <Input
+            label="Issue Title"
+            placeholder="e.g. Deep pothole causing bike accidents"
+            value={title}
+            onChangeText={(text) => {
+              setTitle(text);
+              if (errorMessage) setErrorMessage('');
+            }}
+            editable={!submitting}
+          />
+
+          {/* Description Input */}
+          <Input
+            label="Description"
+            placeholder="Describe how severe the problem is, nearby landmarks, etc."
+            value={description}
+            onChangeText={(text) => {
+              setDescription(text);
+              if (errorMessage) setErrorMessage('');
+            }}
+            multiline
+            numberOfLines={4}
+            editable={!submitting}
+          />
+
+          {/* GPS Location Section */}
+          <View style={styles.locationSection}>
+            <View style={styles.locationHeaderRow}>
+              <Text style={styles.fieldLabel}>GPS Coordinates & Location</Text>
+              <View style={styles.gpsActionRow}>
+                <TouchableOpacity
+                  onPress={() => getCurrentLocation(false)}
+                  disabled={gettingLocation || submitting}
+                  style={styles.gpsFetchBtn}
+                >
+                  {gettingLocation ? (
+                    <ActivityIndicator size="small" color={COLORS.primary} />
+                  ) : (
+                    <>
+                      <Ionicons name="locate" size={16} color={COLORS.primary} />
+                      <Text style={styles.gpsFetchText}>
+                        {hasValidGps ? 'Refresh GPS' : 'Fetch My GPS'}
+                      </Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <View style={styles.coordsCard}>
+              {hasValidGps ? (
+                <Text style={styles.coordsText}>
+                  Lat: {location.latitude.toFixed(6)} | Long:{' '}
+                  {location.longitude.toFixed(6)}
+                </Text>
+              ) : (
+                <Text style={styles.coordsWarningText}>
+                  {gpsStatusMessage || 'Waiting for real GPS coordinates...'}
+                </Text>
+              )}
+              <TouchableOpacity
+                onPress={() => setShowManualCoords((v) => !v)}
+                style={styles.manualToggleBtn}
+              >
+                <Text style={styles.manualToggleText}>
+                  {showManualCoords
+                    ? 'Hide Manual Coordinates'
+                    : 'Enter Coordinates Manually'}
                 </Text>
               </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
+            </View>
 
-        {/* Title Input */}
-        <Input
-          label="Issue Title"
-          placeholder="e.g. Deep pothole causing bike accidents"
-          value={title}
-          onChangeText={setTitle}
-        />
+            {showManualCoords ? (
+              <View style={styles.manualCoordsRow}>
+                <View style={styles.manualCoordCol}>
+                  <Input
+                    label="Latitude"
+                    placeholder="e.g. 23.0225"
+                    value={manualLat}
+                    onChangeText={setManualLat}
+                    keyboardType="numbers-and-punctuation"
+                    editable={!submitting}
+                  />
+                </View>
+                <View style={styles.manualCoordCol}>
+                  <Input
+                    label="Longitude"
+                    placeholder="e.g. 72.5714"
+                    value={manualLng}
+                    onChangeText={setManualLng}
+                    keyboardType="numbers-and-punctuation"
+                    editable={!submitting}
+                  />
+                </View>
+              </View>
+            ) : null}
 
-        {/* Description Input */}
-        <Input
-          label="Description"
-          placeholder="Describe how severe the problem is, nearby landmarks, etc."
-          value={description}
-          onChangeText={setDescription}
-          multiline
-          numberOfLines={4}
-        />
-
-        {/* GPS Location Section */}
-        <View style={styles.locationSection}>
-          <View style={styles.locationHeaderRow}>
-            <Text style={styles.fieldLabel}>GPS Coordinates & Location</Text>
-            <TouchableOpacity
-              onPress={getCurrentLocation}
-              disabled={gettingLocation}
-              style={styles.gpsFetchBtn}
-            >
-              {gettingLocation ? (
-                <ActivityIndicator size="small" color={COLORS.primary} />
-              ) : (
-                <>
-                  <Ionicons name="locate" size={16} color={COLORS.primary} />
-                  <Text style={styles.gpsFetchText}>Fetch My GPS</Text>
-                </>
-              )}
-            </TouchableOpacity>
+            <Input
+              label="Street Address / Landmark"
+              placeholder="e.g. Near City Bank, Ring Road"
+              value={location.address}
+              onChangeText={(text) =>
+                setLocation((prev) => ({ ...prev, address: text }))
+              }
+              icon="location-outline"
+              editable={!submitting}
+            />
           </View>
 
-          <View style={styles.coordsCard}>
-            <Text style={styles.coordsText}>
-              Lat: {location.latitude.toFixed(6)} | Long:{' '}
-              {location.longitude.toFixed(6)}
-            </Text>
-          </View>
-
-          <Input
-            label="Street Address / Landmark"
-            placeholder="e.g. Near City Bank, Ring Road"
-            value={location.address}
-            onChangeText={(text) =>
-              setLocation((prev) => ({ ...prev, address: text }))
-            }
-            icon="location-outline"
+          {/* Submit Button */}
+          <Button
+            title={submitting ? 'Uploading & Saving...' : 'Submit Complaint'}
+            onPress={handleSubmit}
+            loading={submitting}
+            disabled={submitting}
+            icon="send"
+            style={styles.submitBtn}
           />
-        </View>
-
-        {/* Submit Button */}
-        <Button
-          title={submitting ? 'Uploading & Registering...' : 'Submit Complaint'}
-          onPress={handleSubmit}
-          loading={submitting}
-          icon="send"
-          style={styles.submitBtn}
-        />
-      </ScrollView>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -371,13 +540,19 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.background,
   },
+  keyboardView: {
+    flex: 1,
+  },
   scrollContent: {
     padding: SPACING.md,
+    paddingBottom: SPACING.xxl,
   },
   errorBox: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: COLORS.dangerBg,
+    borderWidth: 1,
+    borderColor: COLORS.dangerBorder,
     borderRadius: RADIUS.md,
     padding: SPACING.md,
     marginBottom: SPACING.md,
@@ -400,24 +575,31 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed',
     borderColor: COLORS.borderDark,
     borderRadius: RADIUS.lg,
-    padding: SPACING.lg,
+    padding: SPACING.md,
     alignItems: 'center',
     marginBottom: SPACING.lg,
   },
   photoPickerPrompt: {
     fontSize: FONT_SIZE.sm,
     color: COLORS.textSecondary,
+    textAlign: 'center',
     marginBottom: SPACING.md,
   },
   photoBtnRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
     gap: SPACING.sm,
+    width: '100%',
   },
   photoOptionBtn: {
+    flex: 1,
+    minWidth: 130,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: COLORS.primaryLight,
-    paddingHorizontal: SPACING.md,
+    paddingHorizontal: SPACING.sm,
     paddingVertical: SPACING.sm,
     borderRadius: RADIUS.md,
   },
@@ -443,11 +625,11 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 10,
     right: 10,
-    backgroundColor: 'rgba(220, 38, 38, 0.85)',
+    backgroundColor: 'rgba(220, 38, 38, 0.88)',
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: SPACING.sm,
-    paddingVertical: 4,
+    paddingVertical: 6,
     borderRadius: RADIUS.sm,
   },
   changePhotoText: {
@@ -491,15 +673,21 @@ const styles = StyleSheet.create({
   },
   locationHeaderRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: SPACING.xs,
     marginBottom: SPACING.xs,
+  },
+  gpsActionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   gpsFetchBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: SPACING.sm,
-    paddingVertical: 4,
+    paddingVertical: 6,
     backgroundColor: COLORS.primaryLight,
     borderRadius: RADIUS.sm,
   },
@@ -517,11 +705,32 @@ const styles = StyleSheet.create({
   },
   coordsText: {
     fontSize: FONT_SIZE.xs,
-    color: COLORS.textSecondary,
-    fontFamily: 'monospace',
+    color: COLORS.text,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  coordsWarningText: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.pending,
+    fontWeight: '600',
+  },
+  manualToggleBtn: {
+    marginTop: 6,
+    alignSelf: 'flex-start',
+  },
+  manualToggleText: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.secondary,
+    fontWeight: '600',
+  },
+  manualCoordsRow: {
+    flexDirection: 'row',
+    gap: SPACING.sm,
+  },
+  manualCoordCol: {
+    flex: 1,
   },
   submitBtn: {
     marginTop: SPACING.md,
-    marginBottom: SPACING.xxl,
+    marginBottom: SPACING.lg,
   },
 });

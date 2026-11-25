@@ -10,7 +10,7 @@ import {
   TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../../../components/Header';
 import Card from '../../../components/Card';
@@ -58,6 +58,12 @@ export default function AllIssuesScreen() {
     return () => clearTimeout(timer);
   }, [fetchIssues]);
 
+  useFocusEffect(
+    useCallback(() => {
+      fetchIssues();
+    }, [fetchIssues])
+  );
+
   const onRefresh = () => {
     setRefreshing(true);
     fetchIssues();
@@ -99,7 +105,7 @@ export default function AllIssuesScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <Header
         title="All Street Issues"
         subtitle="Community civic complaints board"
@@ -274,13 +280,16 @@ const styles = StyleSheet.create({
   },
   statusChipsRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     paddingHorizontal: SPACING.md,
     paddingVertical: SPACING.xs,
     gap: SPACING.xs,
   },
   statusFilterBtn: {
-    flex: 1,
+    flexGrow: 1,
+    minWidth: '22%',
     paddingVertical: 6,
+    paddingHorizontal: 6,
     borderRadius: RADIUS.sm,
     backgroundColor: COLORS.surface,
     borderWidth: 1,

@@ -11,15 +11,16 @@ const fileFilter = (req, file, cb) => {
     'image/webp',
   ];
 
-  if (allowedMimeTypes.includes(file.mimetype)) {
+  const normalizedMime = (file.mimetype || '').toLowerCase();
+
+  if (allowedMimeTypes.includes(normalizedMime)) {
     cb(null, true);
   } else {
-    cb(
-      new Error(
-        'Invalid file type. Only JPEG, JPG, PNG, and WEBP image formats are accepted.'
-      ),
-      false
+    const err = new Error(
+      `Invalid file type (${file.mimetype || 'unknown'}). Only JPEG, JPG, PNG, and WEBP images are accepted.`
     );
+    err.statusCode = 400;
+    cb(err, false);
   }
 };
 

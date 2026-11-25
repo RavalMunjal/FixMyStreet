@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,7 +9,7 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../../../components/Header';
 import Badge from '../../../components/Badge';
@@ -27,23 +27,25 @@ export default function IssueDetailsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
 
-  const fetchDetails = async () => {
+  const fetchDetails = useCallback(async () => {
     try {
       setError('');
       const res = await issueService.getById(id);
       setIssue(res?.data?.issue);
     } catch (err) {
       console.warn('Error fetching issue details:', err);
-      setError('Unable to load complaint details. Please try again.');
+      setError(err.message || 'Unable to load complaint details. Please try again.');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  };
-
-  useEffect(() => {
-    fetchDetails();
   }, [id]);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchDetails();
+    }, [fetchDetails])
+  );
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -77,7 +79,7 @@ export default function IssueDetailsScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <Header
         title="Complaint Details"
         subtitle={`ID: #${issue._id?.substring(issue._id.length - 6)}`}
@@ -320,8 +322,10 @@ const styles = StyleSheet.create({
   },
   timelineStatusRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: SPACING.xs,
     marginBottom: 4,
   },
   timelineDate: {

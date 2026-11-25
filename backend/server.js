@@ -4,6 +4,7 @@ const dotenv = require('dotenv');
 const rateLimit = require('express-rate-limit');
 const connectDB = require('./config/db');
 const errorHandler = require('./middleware/errorHandler');
+const { ensureDefaultAccounts } = require('./utils/seedAdmin');
 
 // Route imports
 const authRoutes = require('./routes/authRoutes');
@@ -15,8 +16,14 @@ const uploadRoutes = require('./routes/uploadRoutes');
 // Load environment variables
 dotenv.config();
 
-// Connect to MongoDB
-connectDB();
+// Connect to MongoDB and provision default accounts if needed
+connectDB().then((connected) => {
+  if (connected && process.env.NODE_ENV !== 'test') {
+    ensureDefaultAccounts().catch((err) =>
+      console.warn('Default account check skipped:', err.message)
+    );
+  }
+});
 
 const app = express();
 const PORT = process.env.PORT || 5000;

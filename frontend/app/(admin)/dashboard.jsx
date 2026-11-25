@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,7 +9,7 @@ import {
   Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
 import { adminService } from '../../services/api';
@@ -54,9 +54,11 @@ export default function AdminDashboard() {
     }
   }, []);
 
-  useEffect(() => {
-    fetchDashboard();
-  }, [fetchDashboard]);
+  useFocusEffect(
+    useCallback(() => {
+      fetchDashboard();
+    }, [fetchDashboard])
+  );
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -72,7 +74,7 @@ export default function AdminDashboard() {
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         refreshControl={
@@ -85,12 +87,14 @@ export default function AdminDashboard() {
       >
         {/* Admin Header */}
         <View style={styles.header}>
-          <View>
+          <View style={styles.headerTextCol}>
             <View style={styles.adminBadge}>
               <Ionicons name="shield-checkmark" size={14} color={COLORS.secondary} />
               <Text style={styles.adminBadgeText}>Administrator Portal</Text>
             </View>
-            <Text style={styles.userName}>{user?.name || 'Admin'}</Text>
+            <Text style={styles.userName} numberOfLines={1}>
+              {user?.name || 'Admin'}
+            </Text>
           </View>
           <TouchableOpacity
             style={styles.profileBadge}
@@ -223,6 +227,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: SPACING.lg,
+  },
+  headerTextCol: {
+    flex: 1,
+    marginRight: SPACING.sm,
   },
   adminBadge: {
     flexDirection: 'row',

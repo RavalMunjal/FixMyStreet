@@ -10,7 +10,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../../../components/Header';
 import Card from '../../../components/Card';
@@ -30,9 +30,11 @@ export default function AdminIssuesScreen() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
   const [categoryFilter, setCategoryFilter] = useState('All');
+  const [error, setError] = useState('');
 
   const fetchIssues = useCallback(async () => {
     try {
+      setError('');
       const params = {};
       if (search.trim()) params.search = search.trim();
       if (statusFilter !== 'All') params.status = statusFilter;
@@ -42,6 +44,7 @@ export default function AdminIssuesScreen() {
       setIssues(res?.data?.issues || []);
     } catch (e) {
       console.warn('Admin issues fetch error:', e);
+      setError(e.message || 'Unable to load complaints. Pull down to retry.');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -54,6 +57,12 @@ export default function AdminIssuesScreen() {
     }, 300);
     return () => clearTimeout(timer);
   }, [fetchIssues]);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchIssues();
+    }, [fetchIssues])
+  );
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -81,7 +90,7 @@ export default function AdminIssuesScreen() {
           <Text style={styles.desc} numberOfLines={2}>
             {item.description}
           </Text>
-          <Text style={styles.metaText}>
+          <Text style={styles.metaText} numberOfLines={1}>
             Reporter: {item.reportedBy?.name || 'Citizen'}
           </Text>
           <Text style={styles.dateText}>
@@ -98,7 +107,7 @@ export default function AdminIssuesScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <Header
         title="Manage Complaints"
         subtitle={`${issues.length} complaints matching filters`}
@@ -119,6 +128,32 @@ export default function AdminIssuesScreen() {
             <Ionicons name="close-circle" size={18} color={COLORS.textSecondary} />
           </TouchableOpacity>
         ) : null}
+      </View>
+
+      {/* Category Filter Chips */}
+      <View style={styles.filtersWrapper}>
+        <FlatList
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          data={[{ id: 'All', label: 'All Categories' }, ...CATEGORIES]}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.chipsScroll}
+          renderItem={({ item }) => {
+            const isSelected = categoryFilter === item.id;
+            return (
+              <TouchableOpacity
+                onPress={() => setCategoryFilter(item.id)}
+                style={[styles.chip, isSelected && styles.chipSelected]}
+              >
+                <Text
+                  style={[styles.chipText, isSelected && styles.chipTextSelected]}
+                >
+                  {item.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          }}
+        />
       </View>
 
       {/* Status Chips */}
@@ -150,6 +185,13 @@ export default function AdminIssuesScreen() {
       {/* Issues List */}
       {loading && !refreshing ? (
         <Loading message="Loading complaints..." fullScreen />
+      ) : error ? (
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity onPress={fetchIssues} style={styles.retryBtn}>
+            <Text style={styles.retryText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
       ) : (
         <FlatList
           data={issues}
@@ -205,15 +247,46 @@ const styles = StyleSheet.create({
     color: COLORS.text,
     marginLeft: SPACING.xs,
   },
+  filtersWrapper: {
+    marginTop: SPACING.xs,
+  },
+  chipsScroll: {
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.xs,
+    gap: SPACING.xs,
+  },
+  chip: {
+    paddingHorizontal: SPACING.md,
+    paddingVertical: 6,
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.full,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  chipSelected: {
+    backgroundColor: COLORS.secondary,
+    borderColor: COLORS.secondary,
+  },
+  chipText: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.textSecondary,
+    fontWeight: '600',
+  },
+  chipTextSelected: {
+    color: '#ffffff',
+  },
   statusChipsRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.sm,
+    paddingVertical: SPACING.xs,
     gap: SPACING.xs,
   },
   statusFilterBtn: {
-    flex: 1,
+    flexGrow: 1,
+    minWidth: '22%',
     paddingVertical: 6,
+    paddingHorizontal: 6,
     borderRadius: RADIUS.sm,
     backgroundColor: COLORS.surface,
     borderWidth: 1,
@@ -290,6 +363,28 @@ const styles = StyleSheet.create({
   actionPrompt: {
     fontSize: FONT_SIZE.xs,
     color: COLORS.secondary,
+    fontWeight: '600',
+  },
+  errorContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: SPACING.xl,
+  },
+  errorText: {
+    color: COLORS.danger,
+    fontSize: FONT_SIZE.sm,
+    textAlign: 'center',
+    marginBottom: SPACING.md,
+  },
+  retryBtn: {
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.sm,
+    backgroundColor: COLORS.secondary,
+    borderRadius: RADIUS.md,
+  },
+  retryText: {
+    color: '#ffffff',
     fontWeight: '600',
   },
 });

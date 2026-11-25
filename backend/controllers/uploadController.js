@@ -1,9 +1,20 @@
 const cloudinary = require('../config/cloudinary');
 
-// @desc    Upload an image to Cloudinary (with fallback for local dev)
+const isPlaceholderValue = (value) => {
+  if (!value || typeof value !== 'string') return true;
+  const trimmed = value.trim();
+  if (!trimmed) return true;
+  return (
+    trimmed.startsWith('your_') ||
+    trimmed.startsWith('<') ||
+    trimmed === 'changeme'
+  );
+};
+
+// @desc    Upload an image to Cloudinary (with safe local-dev Data URI fallback when unconfigured)
 // @route   POST /api/uploads/image
 // @access  Private
-const uploadImage = async (req, res, next) => {
+const uploadImage = async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({
@@ -13,13 +24,11 @@ const uploadImage = async (req, res, next) => {
     }
 
     const hasCloudinaryCredentials =
-      process.env.CLOUDINARY_CLOUD_NAME &&
-      process.env.CLOUDINARY_API_KEY &&
-      process.env.CLOUDINARY_API_SECRET &&
-      process.env.CLOUDINARY_CLOUD_NAME !== 'your_cloud_name';
+      !isPlaceholderValue(process.env.CLOUDINARY_CLOUD_NAME) &&
+      !isPlaceholderValue(process.env.CLOUDINARY_API_KEY) &&
+      !isPlaceholderValue(process.env.CLOUDINARY_API_SECRET);
 
     if (hasCloudinaryCredentials) {
-      // Upload stream to Cloudinary
       const uploadStream = () =>
         new Promise((resolve, reject) => {
           const stream = cloudinary.uploader.upload_stream(
@@ -53,26 +62,29 @@ const uploadImage = async (req, res, next) => {
           public_id: result.public_id,
         },
       });
-    } else {
-      // Safe fallback when Cloudinary is not yet configured:
-      // Return data URI so mobile app displays the photo seamlessly during testing
-      const base64Data = req.file.buffer.toString('base64');
-      const dataUri = `data:${req.file.mimetype};base64,${base64Data}`;
-
-      return res.status(201).json({
-        success: true,
-        message: 'Image processed successfully (Development Data URI mode)',
-        data: {
-          url: dataUri,
-          public_id: `local_fallback_${Date.now()}`,
-        },
-      });
     }
+
+    // Safe fallback when Cloudinary credentials are placeholder/unconfigured in local dev
+    const mimeType = (req.file.mimetype || 'image/jpeg').toLowerCase();
+    const base64Data = req.file.buffer.toString('base64');
+    const dataUri = `data:${mimeType};base64,${base64Data}`;
+
+    return res.status(201).json({
+      success: true,
+      message: 'Image uploaded successfully (local storage mode)',
+      data: {
+        url: dataUri,
+        public_id: `local_${Date.now()}`,
+      },
+    });
   } catch (error) {
     console.error('Image upload failed:', error);
-    return res.status(500).json({
+    const statusCode = error.http_code && error.http_code >= 400 ? error.http_code : 500;
+    return res.status(statusCode).json({
       success: false,
-      message: 'Failed to upload image. Please try again.',
+      message: error.message
+        ? `Image upload failed: ${error.message}`
+        : 'Failed to upload image. Please try again.',
     });
   }
 };

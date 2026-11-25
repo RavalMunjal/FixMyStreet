@@ -1,18 +1,6 @@
 const jwt = require('jsonwebtoken');
-const mongoose = require('mongoose');
 const User = require('../models/User');
-
-const checkDB = (res) => {
-  if (mongoose.connection.readyState !== 1) {
-    res.status(503).json({
-      success: false,
-      message:
-        'Database connection pending. Please verify MONGODB_URI in your environment settings.',
-    });
-    return false;
-  }
-  return true;
-};
+const { checkDB } = require('../utils/helpers');
 
 // Helper to generate JWT
 const generateToken = (id, role) => {
@@ -46,7 +34,7 @@ const register = async (req, res, next) => {
       });
     }
 
-    if (confirmPassword && password !== confirmPassword) {
+    if (confirmPassword !== undefined && password !== confirmPassword) {
       return res.status(400).json({
         success: false,
         message: 'Passwords do not match',

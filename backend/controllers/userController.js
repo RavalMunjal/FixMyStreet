@@ -1,11 +1,14 @@
 const User = require('../models/User');
 const Issue = require('../models/Issue');
+const { checkDB } = require('../utils/helpers');
 
 // @desc    Get current user profile with complaint statistics
 // @route   GET /api/users/me
 // @access  Private
 const getProfile = async (req, res, next) => {
   try {
+    if (!checkDB(res)) return;
+
     const user = await User.findById(req.user._id).select('-passwordHash');
 
     if (!user) {
@@ -63,6 +66,8 @@ const getProfile = async (req, res, next) => {
 // @access  Private
 const updateProfile = async (req, res, next) => {
   try {
+    if (!checkDB(res)) return;
+
     const { name, email, currentPassword, newPassword } = req.body;
 
     const user = await User.findById(req.user._id).select('+passwordHash');
@@ -73,8 +78,14 @@ const updateProfile = async (req, res, next) => {
       });
     }
 
-    if (name) {
-      user.name = name.trim();
+    if (name !== undefined) {
+      if (!String(name).trim()) {
+        return res.status(400).json({
+          success: false,
+          message: 'Name cannot be empty',
+        });
+      }
+      user.name = String(name).trim();
     }
 
     if (email && email.toLowerCase().trim() !== user.email) {

@@ -29,7 +29,7 @@ export default function AdminProfileScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <Header
         title="Admin Settings"
         subtitle="Privileged administrative account"

@@ -1,16 +1,16 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
-  Platform,
   Alert,
   Image,
+  FlatList,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../../components/Header';
@@ -19,77 +19,102 @@ import { issueService } from '../../services/api';
 import { APP_CONFIG } from '../../constants/config';
 import { COLORS, SPACING, FONT_SIZE, RADIUS, SHADOW } from '../../constants/theme';
 
-// Safe conditional import for react-native-maps
-let MapView, Marker, Callout;
+let MapView, Marker;
 try {
   const Maps = require('react-native-maps');
   MapView = Maps.default;
   Marker = Maps.Marker;
-  Callout = Maps.Callout;
 } catch (e) {
   console.warn('react-native-maps not available in this environment');
 }
 
+const hasValidCoords = (item) =>
+  typeof item?.latitude === 'number' &&
+  typeof item?.longitude === 'number' &&
+  Number.isFinite(item.latitude) &&
+  Number.isFinite(item.longitude) &&
+  item.latitude >= -90 &&
+  item.latitude <= 90 &&
+  item.longitude >= -180 &&
+  item.longitude <= 180;
+
 export default function NearbyMapScreen() {
   const router = useRouter();
   const mapRef = useRef(null);
+  const hasCenteredRef = useRef(false);
 
   const [issues, setIssues] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedIssue, setSelectedIssue] = useState(null);
-  const [region, setRegion] = useState({
-    latitude: APP_CONFIG.defaultLocation.latitude,
-    longitude: APP_CONFIG.defaultLocation.longitude,
-    latitudeDelta: 0.08,
-    longitudeDelta: 0.08,
-  });
   const [hasLocationPermission, setHasLocationPermission] = useState(false);
+  const [locationNotice, setLocationNotice] = useState('');
+  const [mapError, setMapError] = useState('');
 
-  useEffect(() => {
-    initMap();
-  }, []);
-
-  const initMap = async () => {
+  const loadMapData = useCallback(async () => {
     try {
       setLoading(true);
+      setMapError('');
 
-      // 1. Get user GPS coordinates if permitted
+      let userCoords = null;
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status === 'granted') {
         setHasLocationPermission(true);
+        setLocationNotice('');
         try {
           const loc = await Location.getCurrentPositionAsync({
             accuracy: Location.Accuracy.Balanced,
           });
-          setRegion({
+          userCoords = {
             latitude: loc.coords.latitude,
             longitude: loc.coords.longitude,
-            latitudeDelta: 0.05,
-            longitudeDelta: 0.05,
-          });
+            latitudeDelta: 0.04,
+            longitudeDelta: 0.04,
+          };
         } catch (locErr) {
           console.warn('GPS location fetch error:', locErr);
+          setLocationNotice('GPS signal unavailable. Showing reported issues.');
         }
+      } else {
+        setHasLocationPermission(false);
+        setLocationNotice('Location permission denied. Enable GPS to center on you.');
       }
 
-      // 2. Load all issues from backend to plot on map
       const res = await issueService.getAll({ limit: 100 });
       const items = res?.data?.issues || [];
-      // Filter only items with valid coordinates
-      const validCoordinates = items.filter(
-        (i) =>
-          typeof i.latitude === 'number' &&
-          typeof i.longitude === 'number' &&
-          !isNaN(i.latitude) &&
-          !isNaN(i.longitude)
-      );
+      const validCoordinates = items.filter(hasValidCoords);
       setIssues(validCoordinates);
+
+      if (!hasCenteredRef.current && mapRef.current) {
+        if (userCoords) {
+          mapRef.current.animateToRegion(userCoords, 500);
+          hasCenteredRef.current = true;
+        } else if (validCoordinates.length > 0) {
+          mapRef.current.fitToCoordinates(
+            validCoordinates.map((i) => ({
+              latitude: i.latitude,
+              longitude: i.longitude,
+            })),
+            {
+              edgePadding: { top: 80, right: 50, bottom: 140, left: 50 },
+              animated: true,
+            }
+          );
+          hasCenteredRef.current = true;
+        }
+      }
     } catch (err) {
       console.warn('Error loading map data:', err);
+      setMapError(err.message || 'Unable to load complaints for map.');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadMapData();
+    }, [loadMapData])
+  );
 
   const getMarkerPinColor = (status) => {
     switch (status) {
@@ -104,23 +129,43 @@ export default function NearbyMapScreen() {
 
   const centerOnUser = async () => {
     try {
-      const loc = await Location.getCurrentPositionAsync({});
-      mapRef.current?.animateToRegion({
-        latitude: loc.coords.latitude,
-        longitude: loc.coords.longitude,
-        latitudeDelta: 0.03,
-        longitudeDelta: 0.03,
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert(
+          'Location Permission Denied',
+          'Please allow location access in device settings to center the map on your location.'
+        );
+        return;
+      }
+      setHasLocationPermission(true);
+      setLocationNotice('');
+      const loc = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
       });
+      mapRef.current?.animateToRegion(
+        {
+          latitude: loc.coords.latitude,
+          longitude: loc.coords.longitude,
+          latitudeDelta: 0.03,
+          longitudeDelta: 0.03,
+        },
+        500
+      );
     } catch (e) {
-      Alert.alert('Location Error', 'Unable to fetch current location.');
+      Alert.alert('Location Error', 'Unable to fetch current GPS location.');
     }
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <Header
         title="Nearby Issues Map"
         subtitle={`${issues.length} street reports mapped`}
+        rightComponent={
+          <TouchableOpacity onPress={loadMapData} style={styles.refreshIconBtn}>
+            <Ionicons name="refresh" size={20} color={COLORS.primary} />
+          </TouchableOpacity>
+        }
       />
 
       <View style={styles.container}>
@@ -128,33 +173,57 @@ export default function NearbyMapScreen() {
           <MapView
             ref={mapRef}
             style={styles.map}
-            initialRegion={region}
+            initialRegion={APP_CONFIG.defaultLocation}
             showsUserLocation={hasLocationPermission}
             showsMyLocationButton={false}
+            onPress={() => setSelectedIssue(null)}
           >
             {issues.map((issue) => (
               <Marker
-                key={issue._id}
+                key={`${issue._id}_${issue.status}`}
                 coordinate={{
                   latitude: issue.latitude,
                   longitude: issue.longitude,
                 }}
+                title={issue.title}
+                description={`${issue.category} • ${issue.status}`}
                 pinColor={getMarkerPinColor(issue.status)}
-                onPress={() => setSelectedIssue(issue)}
+                onPress={(e) => {
+                  e.stopPropagation();
+                  setSelectedIssue(issue);
+                }}
               />
             ))}
           </MapView>
         ) : (
           <View style={styles.fallbackBox}>
-            <Ionicons name="map-outline" size={48} color={COLORS.primary} />
-            <Text style={styles.fallbackTitle}>Interactive Map View</Text>
+            <Ionicons name="map-outline" size={44} color={COLORS.primary} />
+            <Text style={styles.fallbackTitle}>Map Preview Unavailable</Text>
             <Text style={styles.fallbackText}>
-              Displaying {issues.length} active street issues registered in MongoDB.
+              Native map rendering requires Android/iOS. Below are {issues.length} mapped complaints:
             </Text>
+            <FlatList
+              data={issues}
+              keyExtractor={(item) => item._id}
+              style={styles.fallbackList}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={styles.fallbackItem}
+                  onPress={() => router.push(`/(citizen)/issues/${item._id}`)}
+                >
+                  <Text style={styles.fallbackItemTitle} numberOfLines={1}>
+                    {item.title}
+                  </Text>
+                  <Text style={styles.fallbackItemCoords}>
+                    {item.latitude.toFixed(4)}, {item.longitude.toFixed(4)} • {item.status}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            />
           </View>
         )}
 
-        {/* Map Legend */}
+        {/* Map Legend (left-aligned with room for recenter button) */}
         <View style={styles.legend}>
           <View style={styles.legendItem}>
             <View style={[styles.dot, { backgroundColor: COLORS.pending }]} />
@@ -170,22 +239,37 @@ export default function NearbyMapScreen() {
           </View>
         </View>
 
-        {/* Recenter GPS Button */}
-        {hasLocationPermission && (
-          <TouchableOpacity style={styles.recenterBtn} onPress={centerOnUser}>
-            <Ionicons name="locate" size={22} color={COLORS.primary} />
-          </TouchableOpacity>
-        )}
+        {/* Recenter / Request GPS Button */}
+        <TouchableOpacity style={styles.recenterBtn} onPress={centerOnUser}>
+          <Ionicons name="locate" size={22} color={COLORS.primary} />
+        </TouchableOpacity>
+
+        {/* Non-blocking GPS Notice or Error */}
+        {(locationNotice || mapError) && !loading ? (
+          <View style={styles.noticeBanner}>
+            <Ionicons
+              name={mapError ? 'alert-circle-outline' : 'location-outline'}
+              size={16}
+              color={mapError ? COLORS.danger : COLORS.pending}
+            />
+            <Text style={styles.noticeText} numberOfLines={2}>
+              {mapError || locationNotice}
+            </Text>
+          </View>
+        ) : null}
 
         {/* Bottom Selected Issue Preview Card */}
         {selectedIssue ? (
           <View style={styles.previewCard}>
             <View style={styles.previewHeader}>
-              <Badge category={selectedIssue.category} size="sm" />
-              <Badge status={selectedIssue.status} size="sm" />
+              <View style={styles.previewBadges}>
+                <Badge category={selectedIssue.category} size="sm" />
+                <Badge status={selectedIssue.status} size="sm" />
+              </View>
               <TouchableOpacity
                 onPress={() => setSelectedIssue(null)}
                 style={styles.closeBtn}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
                 <Ionicons name="close" size={20} color={COLORS.textSecondary} />
               </TouchableOpacity>
@@ -202,8 +286,9 @@ export default function NearbyMapScreen() {
                 <Text style={styles.previewTitle} numberOfLines={1}>
                   {selectedIssue.title}
                 </Text>
-                <Text style={styles.previewAddress} numberOfLines={1}>
-                  {selectedIssue.address || 'GPS Coordinates'}
+                <Text style={styles.previewAddress} numberOfLines={2}>
+                  {selectedIssue.address ||
+                    `${selectedIssue.latitude.toFixed(4)}, ${selectedIssue.longitude.toFixed(4)}`}
                 </Text>
               </View>
             </View>
@@ -222,7 +307,7 @@ export default function NearbyMapScreen() {
 
         {loading && (
           <View style={styles.loadingOverlay}>
-            <ActivityIndicator size="large" color={COLORS.primary} />
+            <ActivityIndicator size="small" color={COLORS.primary} />
             <Text style={styles.loadingText}>Loading issue markers...</Text>
           </View>
         )}
@@ -236,6 +321,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.background,
   },
+  refreshIconBtn: {
+    padding: 4,
+  },
   container: {
     flex: 1,
     position: 'relative',
@@ -247,14 +335,17 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: SPACING.md,
     left: SPACING.md,
+    right: 68,
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
     backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.xs,
-    borderRadius: RADIUS.full,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 6,
+    borderRadius: RADIUS.lg,
     borderWidth: 1,
     borderColor: COLORS.border,
-    gap: SPACING.md,
+    gap: SPACING.sm,
     ...SHADOW.card,
   },
   legendItem: {
@@ -262,13 +353,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   dot: {
-    width: 10,
-    height: 10,
+    width: 9,
+    height: 9,
     borderRadius: 5,
     marginRight: 4,
   },
   legendText: {
-    fontSize: FONT_SIZE.xs,
+    fontSize: 11,
     fontWeight: '600',
     color: COLORS.text,
   },
@@ -285,6 +376,28 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.border,
     ...SHADOW.elevated,
+  },
+  noticeBanner: {
+    position: 'absolute',
+    top: 68,
+    left: SPACING.md,
+    right: SPACING.md,
+    backgroundColor: 'rgba(255, 255, 255, 0.96)',
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: SPACING.xs,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.xs,
+    ...SHADOW.card,
+  },
+  noticeText: {
+    flex: 1,
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.textSecondary,
+    fontWeight: '500',
   },
   previewCard: {
     position: 'absolute',
@@ -303,6 +416,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: SPACING.sm,
+  },
+  previewBadges: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: SPACING.xs,
+    flex: 1,
   },
   closeBtn: {
     padding: 2,
@@ -350,7 +469,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: SPACING.xl,
+    padding: SPACING.lg,
   },
   fallbackTitle: {
     fontSize: FONT_SIZE.lg,
@@ -363,12 +482,34 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
     textAlign: 'center',
     marginTop: SPACING.xs,
+    marginBottom: SPACING.md,
+  },
+  fallbackList: {
+    width: '100%',
+  },
+  fallbackItem: {
+    backgroundColor: COLORS.surface,
+    padding: SPACING.md,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    marginBottom: SPACING.xs,
+  },
+  fallbackItemTitle: {
+    fontSize: FONT_SIZE.sm,
+    fontWeight: '700',
+    color: COLORS.text,
+  },
+  fallbackItemCoords: {
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.textSecondary,
+    marginTop: 2,
   },
   loadingOverlay: {
     position: 'absolute',
-    top: 20,
+    bottom: SPACING.md,
     alignSelf: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    backgroundColor: 'rgba(255, 255, 255, 0.94)',
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: SPACING.md,
@@ -377,6 +518,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.border,
     gap: SPACING.xs,
+    ...SHADOW.card,
   },
   loadingText: {
     fontSize: FONT_SIZE.xs,

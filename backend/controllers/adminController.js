@@ -1,11 +1,14 @@
 const User = require('../models/User');
 const Issue = require('../models/Issue');
+const { checkDB, escapeRegex, parsePagination } = require('../utils/helpers');
 
 // @desc    Get admin dashboard metrics & counts
 // @route   GET /api/admin/dashboard
 // @access  Private (Admin)
 const getDashboardStats = async (req, res, next) => {
   try {
+    if (!checkDB(res)) return;
+
     const total = await Issue.countDocuments();
     const pending = await Issue.countDocuments({ status: 'Pending' });
     const inProgress = await Issue.countDocuments({ status: 'In Progress' });
@@ -41,6 +44,8 @@ const getDashboardStats = async (req, res, next) => {
 // @access  Private (Admin)
 const getAllAdminIssues = async (req, res, next) => {
   try {
+    if (!checkDB(res)) return;
+
     const { category, status, search, page = 1, limit = 50 } = req.query;
 
     const query = {};
@@ -54,7 +59,7 @@ const getAllAdminIssues = async (req, res, next) => {
     }
 
     if (search && search.trim() !== '') {
-      const searchRegex = new RegExp(search.trim(), 'i');
+      const searchRegex = new RegExp(escapeRegex(search.trim()), 'i');
       query.$or = [
         { title: searchRegex },
         { description: searchRegex },
@@ -62,14 +67,14 @@ const getAllAdminIssues = async (req, res, next) => {
       ];
     }
 
-    const skip = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+    const pagination = parsePagination(page, limit, 100);
 
     const issues = await Issue.find(query)
       .populate('reportedBy', 'name email role')
       .populate('statusHistory.updatedBy', 'name email')
       .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(parseInt(limit, 10));
+      .skip(pagination.skip)
+      .limit(pagination.limit);
 
     const total = await Issue.countDocuments(query);
 
@@ -78,7 +83,7 @@ const getAllAdminIssues = async (req, res, next) => {
       message: 'All issues retrieved for admin',
       data: {
         total,
-        page: parseInt(page, 10),
+        page: pagination.page,
         count: issues.length,
         issues,
       },
@@ -93,6 +98,8 @@ const getAllAdminIssues = async (req, res, next) => {
 // @access  Private (Admin)
 const updateIssueStatus = async (req, res, next) => {
   try {
+    if (!checkDB(res)) return;
+
     const { status, adminNote } = req.body;
 
     const validStatuses = ['Pending', 'In Progress', 'Resolved'];
@@ -114,8 +121,8 @@ const updateIssueStatus = async (req, res, next) => {
     const previousStatus = issue.status;
     issue.status = status;
 
-    if (adminNote) {
-      issue.adminNote = adminNote.trim();
+    if (adminNote !== undefined) {
+      issue.adminNote = String(adminNote).trim();
     }
 
     // Append update to history with admin audit trail
@@ -123,7 +130,7 @@ const updateIssueStatus = async (req, res, next) => {
       status,
       updatedBy: req.user._id,
       note:
-        adminNote ||
+        (adminNote && String(adminNote).trim()) ||
         `Status changed from ${previousStatus} to ${status} by administrator`,
       updatedAt: new Date(),
     });
@@ -151,6 +158,8 @@ const updateIssueStatus = async (req, res, next) => {
 // @access  Private (Admin)
 const resolveIssue = async (req, res, next) => {
   try {
+    if (!checkDB(res)) return;
+
     const { adminNote, resolutionImageUrl } = req.body;
 
     const issue = await Issue.findById(req.params.id);
@@ -162,17 +171,19 @@ const resolveIssue = async (req, res, next) => {
     }
 
     issue.status = 'Resolved';
-    if (adminNote) {
-      issue.adminNote = adminNote.trim();
+    if (adminNote !== undefined) {
+      issue.adminNote = String(adminNote).trim();
     }
-    if (resolutionImageUrl) {
-      issue.resolutionImageUrl = resolutionImageUrl.trim();
+    if (resolutionImageUrl !== undefined) {
+      issue.resolutionImageUrl = String(resolutionImageUrl).trim();
     }
 
     issue.statusHistory.push({
       status: 'Resolved',
       updatedBy: req.user._id,
-      note: adminNote || 'Complaint marked resolved by administrator',
+      note:
+        (adminNote && String(adminNote).trim()) ||
+        'Complaint marked resolved by administrator',
       updatedAt: new Date(),
     });
 
@@ -199,6 +210,8 @@ const resolveIssue = async (req, res, next) => {
 // @access  Private (Admin)
 const getUsers = async (req, res, next) => {
   try {
+    if (!checkDB(res)) return;
+
     const users = await User.find({ role: 'citizen' })
       .select('-passwordHash')
       .sort({ createdAt: -1 });

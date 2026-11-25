@@ -4,6 +4,53 @@ const User = require('../models/User');
 
 dotenv.config();
 
+/**
+ * Idempotently ensure the configured admin account (and demo citizen in dev)
+ * exist in MongoDB once connected. Safe to call on server startup.
+ */
+const ensureDefaultAccounts = async () => {
+  if (mongoose.connection.readyState !== 1) return;
+
+  const adminEmail = (
+    process.env.ADMIN_EMAIL || 'admin@fixmystreet.com'
+  ).toLowerCase().trim();
+  const adminPassword = process.env.ADMIN_PASSWORD || 'Admin@123456';
+  const adminName = process.env.ADMIN_NAME || 'Super Administrator';
+
+  const existingAdmin = await User.findOne({ email: adminEmail });
+  if (existingAdmin) {
+    if (existingAdmin.role !== 'admin') {
+      existingAdmin.role = 'admin';
+      await existingAdmin.save();
+    }
+  } else {
+    const passwordHash = await User.hashPassword(adminPassword);
+    await User.create({
+      name: adminName,
+      email: adminEmail,
+      passwordHash,
+      role: 'admin',
+    });
+    console.log(`🎉 Created default Admin account: ${adminEmail}`);
+  }
+
+  // Ensure demo citizen exists in development/local testing environments
+  if (process.env.NODE_ENV !== 'production') {
+    const demoEmail = 'citizen@fixmystreet.com';
+    const existingCitizen = await User.findOne({ email: demoEmail });
+    if (!existingCitizen) {
+      const demoHash = await User.hashPassword('Citizen@123456');
+      await User.create({
+        name: 'Demo Citizen',
+        email: demoEmail,
+        passwordHash: demoHash,
+        role: 'citizen',
+      });
+      console.log(`🎉 Created demo Citizen account: ${demoEmail}`);
+    }
+  }
+};
+
 const seedAdmin = async () => {
   try {
     const mongoUri = process.env.MONGODB_URI;
@@ -15,37 +62,10 @@ const seedAdmin = async () => {
     await mongoose.connect(mongoUri);
     console.log('✅ Connected to MongoDB for admin provisioning');
 
-    const adminEmail = (
-      process.env.ADMIN_EMAIL || 'admin@fixmystreet.com'
-    ).toLowerCase().trim();
-    const adminPassword = process.env.ADMIN_PASSWORD || 'Admin@123456';
-    const adminName = process.env.ADMIN_NAME || 'Super Administrator';
-
-    let existingAdmin = await User.findOne({ email: adminEmail });
-
-    if (existingAdmin) {
-      console.log(`ℹ️ Admin account already exists: ${adminEmail}`);
-      // Ensure role is admin
-      if (existingAdmin.role !== 'admin') {
-        existingAdmin.role = 'admin';
-        await existingAdmin.save();
-        console.log('Updated existing account to admin role.');
-      }
-    } else {
-      const passwordHash = await User.hashPassword(adminPassword);
-      const newAdmin = await User.create({
-        name: adminName,
-        email: adminEmail,
-        passwordHash,
-        role: 'admin',
-      });
-      console.log(`🎉 Created default Admin successfully!`);
-      console.log(`   Email: ${newAdmin.email}`);
-      console.log(`   Role: ${newAdmin.role}`);
-    }
+    await ensureDefaultAccounts();
 
     await mongoose.disconnect();
-    console.log('✅ Disconnected from MongoDB. Admin provisioning complete.');
+    console.log('✅ Disconnected from MongoDB. Account provisioning complete.');
     process.exit(0);
   } catch (error) {
     console.error('❌ Error during admin seeding:', error);
@@ -58,3 +78,4 @@ if (require.main === module) {
 }
 
 module.exports = seedAdmin;
+module.exports.ensureDefaultAccounts = ensureDefaultAccounts;

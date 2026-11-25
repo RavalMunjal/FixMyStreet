@@ -104,7 +104,8 @@ const styles = StyleSheet.create({
     height: 50,
   },
   multilineWrapper: {
-    height: 100,
+    height: 'auto',
+    minHeight: 100,
     alignItems: 'flex-start',
     paddingVertical: SPACING.sm,
   },
@@ -115,6 +116,8 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   multilineInput: {
+    height: 'auto',
+    minHeight: 82,
     textAlignVertical: 'top',
   },
   inputWithIcon: {

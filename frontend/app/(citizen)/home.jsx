@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,7 +9,7 @@ import {
   Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
 import { issueService } from '../../services/api';
@@ -40,33 +40,39 @@ export default function HomeDashboard() {
       setError('');
       const res = await issueService.getAll({ limit: 5 });
       const issues = res?.data?.issues || [];
-      const total = res?.data?.total || issues.length;
+      const apiStats = res?.data?.stats;
 
-      // Calculate status breakdown
-      const pending = issues.filter((i) => i.status === 'Pending').length;
-      const inProgress = issues.filter((i) => i.status === 'In Progress').length;
-      const resolved = issues.filter((i) => i.status === 'Resolved').length;
-
-      setStats({
-        total,
-        pending: pending > 0 ? pending : Math.ceil(total * 0.4),
-        inProgress: inProgress > 0 ? inProgress : Math.floor(total * 0.3),
-        resolved: resolved > 0 ? resolved : Math.floor(total * 0.3),
-      });
+      if (apiStats) {
+        setStats({
+          total: apiStats.total ?? 0,
+          pending: apiStats.pending ?? 0,
+          inProgress: apiStats.inProgress ?? 0,
+          resolved: apiStats.resolved ?? 0,
+        });
+      } else {
+        setStats({
+          total: res?.data?.total || issues.length,
+          pending: issues.filter((i) => i.status === 'Pending').length,
+          inProgress: issues.filter((i) => i.status === 'In Progress').length,
+          resolved: issues.filter((i) => i.status === 'Resolved').length,
+        });
+      }
 
       setRecentIssues(issues);
     } catch (err) {
       console.warn('Dashboard fetch error:', err.message);
-      setError('Unable to load latest complaints. Pull to refresh.');
+      setError(err.message || 'Unable to load latest complaints. Pull to refresh.');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   }, []);
 
-  useEffect(() => {
-    fetchDashboardData();
-  }, [fetchDashboardData]);
+  useFocusEffect(
+    useCallback(() => {
+      fetchDashboardData();
+    }, [fetchDashboardData])
+  );
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -82,7 +88,7 @@ export default function HomeDashboard() {
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         refreshControl={
@@ -95,9 +101,11 @@ export default function HomeDashboard() {
       >
         {/* Welcome Header */}
         <View style={styles.header}>
-          <View>
+          <View style={styles.headerTextCol}>
             <Text style={styles.greeting}>Welcome back,</Text>
-            <Text style={styles.userName}>{user?.name || 'Citizen'}</Text>
+            <Text style={styles.userName} numberOfLines={1}>
+              {user?.name || 'Citizen'}
+            </Text>
           </View>
           <TouchableOpacity
             style={styles.profileBadge}
@@ -164,7 +172,7 @@ export default function HomeDashboard() {
             <View style={[styles.shortcutIcon, { backgroundColor: COLORS.secondaryLight }]}>
               <Ionicons name="map" size={22} color={COLORS.secondary} />
             </View>
-            <View>
+            <View style={styles.shortcutTextCol}>
               <Text style={styles.shortcutTitle}>Nearby Map</Text>
               <Text style={styles.shortcutSubtitle}>Explore issues on GPS map</Text>
             </View>
@@ -177,7 +185,7 @@ export default function HomeDashboard() {
             <View style={[styles.shortcutIcon, { backgroundColor: COLORS.primaryLight }]}>
               <Ionicons name="folder-open" size={22} color={COLORS.primary} />
             </View>
-            <View>
+            <View style={styles.shortcutTextCol}>
               <Text style={styles.shortcutTitle}>My Complaints</Text>
               <Text style={styles.shortcutSubtitle}>Check resolution progress</Text>
             </View>
@@ -263,6 +271,13 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: SPACING.lg,
+  },
+  headerTextCol: {
+    flex: 1,
+    marginRight: SPACING.sm,
+  },
+  shortcutTextCol: {
+    flex: 1,
   },
   greeting: {
     fontSize: FONT_SIZE.sm,

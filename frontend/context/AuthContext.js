@@ -1,18 +1,31 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { tokenStorage } from '../services/storage';
-import { authService } from '../services/api';
+import { authService, setUnauthorizedHandler } from '../services/api';
 
 const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(null);
+  // isLoading strictly tracks initial session restoration so login/register errors do not re-trigger root guards
   const [isLoading, setIsLoading] = useState(true);
 
-  // Initialize and check auto-login on startup
-  useEffect(() => {
-    checkAuthSession();
+  const clearSession = useCallback(async () => {
+    try {
+      await tokenStorage.clearAll();
+    } catch (e) {
+      console.warn('Error clearing storage on session reset', e);
+    } finally {
+      setUser(null);
+      setToken(null);
+    }
   }, []);
+
+  useEffect(() => {
+    setUnauthorizedHandler(clearSession);
+    checkAuthSession();
+    return () => setUnauthorizedHandler(null);
+  }, [clearSession]);
 
   const checkAuthSession = async () => {
     try {
@@ -22,88 +35,73 @@ export const AuthProvider = ({ children }) => {
 
       if (storedToken) {
         setToken(storedToken);
-
-        // Pre-populate with cached user for immediate UI responsiveness
         if (storedUser) {
           setUser(storedUser);
         }
 
-        // Validate token against backend
+        // Validate JWT against backend with short startup timeout
         try {
-          const res = await authService.getMe();
+          const res = await authService.getMe({ timeout: 6000 });
           if (res?.data?.user) {
             setUser(res.data.user);
             await tokenStorage.setUser(res.data.user);
           }
         } catch (apiError) {
-          console.warn('Token validation with backend failed:', apiError.message);
-          // If token is invalid or expired (401), clean up
+          console.warn('Session check with backend failed:', apiError.message);
           if (apiError.status === 401) {
-            await tokenStorage.clearAll();
-            setUser(null);
-            setToken(null);
+            await clearSession();
+          } else if (!storedUser) {
+            // Token exists without cached user and backend unreachable
+            await clearSession();
           }
         }
       }
     } catch (e) {
       console.warn('Failed to restore authentication session:', e);
-      await tokenStorage.clearAll();
-      setUser(null);
-      setToken(null);
+      await clearSession();
     } finally {
       setIsLoading(false);
     }
   };
 
   const login = async (email, password) => {
-    setIsLoading(true);
-    try {
-      const res = await authService.login(email, password);
-      const { token: receivedToken, user: receivedUser } = res.data;
+    const res = await authService.login(email, password);
+    const receivedToken = res?.data?.token;
+    const receivedUser = res?.data?.user;
 
-      await tokenStorage.setToken(receivedToken);
-      await tokenStorage.setUser(receivedUser);
-
-      setToken(receivedToken);
-      setUser(receivedUser);
-
-      return { success: true, user: receivedUser };
-    } catch (error) {
-      throw error;
-    } finally {
-      setIsLoading(false);
+    if (!receivedToken || !receivedUser) {
+      throw new Error('Invalid login response received from server.');
     }
+
+    await tokenStorage.setToken(receivedToken);
+    await tokenStorage.setUser(receivedUser);
+
+    setToken(receivedToken);
+    setUser(receivedUser);
+
+    return { success: true, user: receivedUser };
   };
 
   const register = async (name, email, password, confirmPassword) => {
-    setIsLoading(true);
-    try {
-      const res = await authService.register(name, email, password, confirmPassword);
-      const { token: receivedToken, user: receivedUser } = res.data;
+    const res = await authService.register(name, email, password, confirmPassword);
+    const receivedToken = res?.data?.token;
+    const receivedUser = res?.data?.user;
 
-      await tokenStorage.setToken(receivedToken);
-      await tokenStorage.setUser(receivedUser);
-
-      setToken(receivedToken);
-      setUser(receivedUser);
-
-      return { success: true, user: receivedUser };
-    } catch (error) {
-      throw error;
-    } finally {
-      setIsLoading(false);
+    if (!receivedToken || !receivedUser) {
+      throw new Error('Invalid registration response received from server.');
     }
+
+    await tokenStorage.setToken(receivedToken);
+    await tokenStorage.setUser(receivedUser);
+
+    setToken(receivedToken);
+    setUser(receivedUser);
+
+    return { success: true, user: receivedUser };
   };
 
   const logout = async () => {
-    try {
-      await tokenStorage.clearAll();
-    } catch (e) {
-      console.warn('Error clearing storage on logout', e);
-    } finally {
-      setUser(null);
-      setToken(null);
-    }
+    await clearSession();
   };
 
   const refreshUser = async () => {

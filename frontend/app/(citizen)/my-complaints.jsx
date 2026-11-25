@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,7 +9,7 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../../components/Header';
 import Card from '../../components/Card';
@@ -34,16 +34,18 @@ export default function MyComplaintsScreen() {
       setMyIssues(res?.data?.issues || []);
     } catch (err) {
       console.warn('Failed to load my issues:', err);
-      setError('Unable to load your complaints. Pull down to refresh.');
+      setError(err.message || 'Unable to load your complaints. Pull down to refresh.');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   }, []);
 
-  useEffect(() => {
-    fetchMyComplaints();
-  }, [fetchMyComplaints]);
+  useFocusEffect(
+    useCallback(() => {
+      fetchMyComplaints();
+    }, [fetchMyComplaints])
+  );
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -95,7 +97,7 @@ export default function MyComplaintsScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <Header
         title="My Complaints"
         subtitle={`${myIssues.length} issues reported by you`}

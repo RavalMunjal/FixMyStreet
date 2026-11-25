@@ -1,33 +1,9 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import { useAuth } from '../context/AuthContext';
 import { COLORS, SPACING, FONT_SIZE } from '../constants/theme';
 
 export default function SplashScreen() {
-  const { isAuthenticated, user, isLoading } = useAuth();
-  const router = useRouter();
-
-  useEffect(() => {
-    // Timeout safeguard so the splash screen never hangs permanently
-    const timer = setTimeout(() => {
-      if (!isLoading) {
-        if (isAuthenticated) {
-          if (user?.role === 'admin') {
-            router.replace('/(admin)/dashboard');
-          } else {
-            router.replace('/(citizen)/home');
-          }
-        } else {
-          router.replace('/(auth)/login');
-        }
-      }
-    }, 800);
-
-    return () => clearTimeout(timer);
-  }, [isLoading, isAuthenticated, user]);
-
   return (
     <View style={styles.container}>
       <View style={styles.brandContainer}>
@@ -56,7 +32,7 @@ const styles = StyleSheet.create({
   },
   brandContainer: {
     alignItems: 'center',
-    marginTop: 100,
+    marginTop: 80,
   },
   iconCircle: {
     width: 96,
