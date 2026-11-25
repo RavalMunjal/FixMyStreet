@@ -30,6 +30,9 @@ ios/
 logs/
 *.log
 
+# Database
+mongodb_data/
+
 # OS & Editor files
 .DS_Store
 Thumbs.db
