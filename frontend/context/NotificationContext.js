@@ -110,23 +110,11 @@ export const NotificationProvider = ({ children }) => {
         markAsRead(data.notificationId);
       }
 
-      const issueId = data.issueId;
-      if (issueId) {
-        if (user?.role === 'admin' || data.targetRole === 'admin') {
-          if (user?.role === 'admin') {
-            router.push(`/(admin)/issues/${issueId}`);
-          } else {
-            router.push(`/(citizen)/issues/${issueId}`);
-          }
-        } else {
-          router.push(`/(citizen)/issues/${issueId}`);
-        }
+      const basePath = user?.role === 'admin' ? '/(admin)' : '/(citizen)';
+      if (data.issueId) {
+        router.push(`${basePath}/issues/${data.issueId}`);
       } else {
-        router.push(
-          user?.role === 'admin'
-            ? '/(admin)/notifications'
-            : '/(citizen)/notifications'
-        );
+        router.push(`${basePath}/notifications`);
       }
     },
     [isAuthenticated, user?.role, markAsRead, router]

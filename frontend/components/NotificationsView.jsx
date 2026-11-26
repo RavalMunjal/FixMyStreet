@@ -16,46 +16,40 @@ import Loading from './Loading';
 import EmptyState from './EmptyState';
 import { COLORS, SPACING, FONT_SIZE, RADIUS, SHADOW } from '../constants/theme';
 
-const getTypeMeta = (type) => {
-  switch (type) {
-    case 'ISSUE_SUBMITTED':
-      return {
-        icon: 'checkmark-circle-outline',
-        color: COLORS.primary,
-        bg: COLORS.primaryLight,
-      };
-    case 'NEW_ISSUE_ADMIN':
-      return {
-        icon: 'megaphone-outline',
-        color: COLORS.secondary,
-        bg: COLORS.secondaryLight,
-      };
-    case 'STATUS_UPDATED':
-      return {
-        icon: 'sync-outline',
-        color: COLORS.inProgress,
-        bg: COLORS.inProgressBg,
-      };
-    case 'ISSUE_RESOLVED':
-      return {
-        icon: 'shield-checkmark-outline',
-        color: COLORS.resolved,
-        bg: COLORS.resolvedBg,
-      };
-    case 'ISSUE_SUPPORTED':
-      return {
-        icon: 'thumbs-up-outline',
-        color: COLORS.pending,
-        bg: COLORS.pendingBg,
-      };
-    default:
-      return {
-        icon: 'notifications-outline',
-        color: COLORS.primary,
-        bg: COLORS.primaryLight,
-      };
-  }
+const NOTIFICATION_META = {
+  ISSUE_SUBMITTED: {
+    icon: 'checkmark-circle-outline',
+    color: COLORS.primary,
+    bg: COLORS.primaryLight,
+  },
+  NEW_ISSUE_ADMIN: {
+    icon: 'megaphone-outline',
+    color: COLORS.secondary,
+    bg: COLORS.secondaryLight,
+  },
+  STATUS_UPDATED: {
+    icon: 'sync-outline',
+    color: COLORS.inProgress,
+    bg: COLORS.inProgressBg,
+  },
+  ISSUE_RESOLVED: {
+    icon: 'shield-checkmark-outline',
+    color: COLORS.resolved,
+    bg: COLORS.resolvedBg,
+  },
+  ISSUE_SUPPORTED: {
+    icon: 'thumbs-up-outline',
+    color: COLORS.pending,
+    bg: COLORS.pendingBg,
+  },
+  DEFAULT: {
+    icon: 'notifications-outline',
+    color: COLORS.primary,
+    bg: COLORS.primaryLight,
+  },
 };
+
+const getTypeMeta = (type) => NOTIFICATION_META[type] || NOTIFICATION_META.DEFAULT;
 
 export default function NotificationsView({ role = 'citizen' }) {
   const router = useRouter();

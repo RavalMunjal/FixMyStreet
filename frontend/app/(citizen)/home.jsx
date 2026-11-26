@@ -6,7 +6,6 @@ import {
   ScrollView,
   RefreshControl,
   TouchableOpacity,
-  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -14,10 +13,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
 import { useNotifications } from '../../context/NotificationContext';
 import { issueService } from '../../services/api';
-import Card from '../../components/Card';
-import Badge from '../../components/Badge';
 import Button from '../../components/Button';
-import SupportButton from '../../components/SupportButton';
+import IssueCard from '../../components/IssueCard';
 import NotificationBell from '../../components/NotificationBell';
 import Loading from '../../components/Loading';
 import EmptyState from '../../components/EmptyState';
@@ -230,58 +227,14 @@ export default function HomeDashboard() {
           />
         ) : (
           recentIssues.map((issue) => (
-            <Card
+            <IssueCard
               key={issue._id}
+              issue={issue}
               onPress={() => router.push(`/(citizen)/issues/${issue._id}`)}
-              style={styles.issueCard}
-            >
-              <View style={styles.cardHeader}>
-                <View style={styles.badgeGroup}>
-                  <Badge category={issue.category} size="sm" />
-                  {issue.confirmedUrgency === 'High' ? (
-                    <Badge urgency="High" size="sm" />
-                  ) : null}
-                </View>
-                <Badge status={issue.status} size="sm" />
-              </View>
-
-              <View style={styles.cardBody}>
-                {issue.imageUrl ? (
-                  <Image
-                    source={{ uri: issue.imageUrl }}
-                    style={styles.issueThumb}
-                  />
-                ) : null}
-                <View style={styles.issueDetails}>
-                  <Text style={styles.issueTitle} numberOfLines={1}>
-                    {issue.title}
-                  </Text>
-                  <Text style={styles.issueDesc} numberOfLines={2}>
-                    {issue.description}
-                  </Text>
-                  <View style={styles.locationRow}>
-                    <Ionicons
-                      name="location-outline"
-                      size={14}
-                      color={COLORS.textSecondary}
-                    />
-                    <Text style={styles.locationText} numberOfLines={1}>
-                      {issue.address || 'GPS Location'}
-                    </Text>
-                  </View>
-                </View>
-              </View>
-
-              <View style={styles.cardFooter}>
-                <SupportButton
-                  issue={issue}
-                  currentUserId={user?._id}
-                  onUpdated={handleIssueUpdated}
-                  compact
-                />
-                <Text style={styles.viewLink}>Details →</Text>
-              </View>
-            </Card>
+              showSupportButton
+              currentUserId={user?._id}
+              onIssueUpdated={handleIssueUpdated}
+            />
           ))
         )}
       </ScrollView>
@@ -444,71 +397,5 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZE.sm,
     color: COLORS.danger,
     textAlign: 'center',
-  },
-  issueCard: {
-    padding: SPACING.md,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: SPACING.xs,
-    marginBottom: SPACING.sm,
-  },
-  badgeGroup: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: SPACING.xs,
-    flex: 1,
-  },
-  cardBody: {
-    flexDirection: 'row',
-  },
-  issueThumb: {
-    width: 70,
-    height: 70,
-    borderRadius: RADIUS.sm,
-    backgroundColor: COLORS.surfaceAlt,
-    marginRight: SPACING.md,
-  },
-  issueDetails: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  issueTitle: {
-    fontSize: FONT_SIZE.md,
-    fontWeight: '700',
-    color: COLORS.text,
-    marginBottom: 4,
-  },
-  issueDesc: {
-    fontSize: FONT_SIZE.xs,
-    color: COLORS.textSecondary,
-    marginBottom: 6,
-  },
-  locationRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  locationText: {
-    fontSize: FONT_SIZE.xs,
-    color: COLORS.textSecondary,
-    marginLeft: 4,
-    flex: 1,
-  },
-  cardFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: SPACING.sm,
-    paddingTop: SPACING.sm,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.border,
-  },
-  viewLink: {
-    fontSize: FONT_SIZE.xs,
-    color: COLORS.primary,
-    fontWeight: '700',
   },
 });

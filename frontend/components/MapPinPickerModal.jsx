@@ -10,10 +10,14 @@ import {
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
 import Button from './Button';
 import { APP_CONFIG } from '../constants/config';
+import {
+  formatAddressFromCoords,
+  getCurrentGpsPosition,
+  isValidCoordinate,
+} from '../services/location';
 import { COLORS, SPACING, FONT_SIZE, RADIUS, SHADOW } from '../constants/theme';
 
 let MapView, Marker, PROVIDER_GOOGLE;
@@ -40,54 +44,45 @@ export default function MapPinPickerModal({
   const [locatingGps, setLocatingGps] = useState(false);
   const [permissionNotice, setPermissionNotice] = useState('');
 
-  const reverseGeocodeCoords = async (latitude, longitude) => {
+  const safeAnimateToCoords = (coords) => {
+    if (!coords || !mapRef.current) return;
     try {
-      setResolvingAddress(true);
-      const list = await Location.reverseGeocodeAsync({ latitude, longitude });
-      if (list && list.length > 0) {
-        const item = list[0];
-        const formatted = [
-          item.name,
-          item.street,
-          item.district || item.subregion,
-          item.city,
-          item.postalCode,
-        ]
-          .filter(Boolean)
-          .join(', ');
-        if (formatted) {
-          setResolvedAddress(formatted);
-          return formatted;
-        }
-      }
-      const fallback = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
-      setResolvedAddress(fallback);
-      return fallback;
-    } catch (e) {
-      const fallback = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
-      setResolvedAddress(fallback);
-      return fallback;
-    } finally {
-      setResolvingAddress(false);
+      mapRef.current.animateToRegion(
+        {
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+          latitudeDelta: 0.01,
+          longitudeDelta: 0.01,
+        },
+        350
+      );
+    } catch (err) {
+      console.warn('Map animate skipped:', err.message);
     }
+  };
+
+  const resolveAddress = async (latitude, longitude) => {
+    setResolvingAddress(true);
+    const formatted = await formatAddressFromCoords(latitude, longitude);
+    setResolvedAddress(formatted);
+    setResolvingAddress(false);
+    return formatted;
   };
 
   useEffect(() => {
     if (!visible) return;
     setPermissionNotice('');
 
-    if (
-      typeof initialCoords?.latitude === 'number' &&
-      typeof initialCoords?.longitude === 'number'
-    ) {
-      setSelectedCoords({
+    if (isValidCoordinate(initialCoords?.latitude, initialCoords?.longitude)) {
+      const coords = {
         latitude: initialCoords.latitude,
         longitude: initialCoords.longitude,
-      });
+      };
+      setSelectedCoords(coords);
       if (initialCoords.address) {
         setResolvedAddress(initialCoords.address);
       } else {
-        reverseGeocodeCoords(initialCoords.latitude, initialCoords.longitude);
+        resolveAddress(coords.latitude, coords.longitude);
       }
     } else {
       useCurrentLocation(true);
@@ -95,64 +90,31 @@ export default function MapPinPickerModal({
   }, [visible]);
 
   useEffect(() => {
-    if (visible && mapReady && selectedCoords && mapRef.current) {
-      mapRef.current.animateToRegion(
-        {
-          latitude: selectedCoords.latitude,
-          longitude: selectedCoords.longitude,
-          latitudeDelta: 0.01,
-          longitudeDelta: 0.01,
-        },
-        350
-      );
+    if (visible && mapReady && selectedCoords) {
+      safeAnimateToCoords(selectedCoords);
     }
   }, [visible, mapReady]);
 
   const useCurrentLocation = async (silent = false) => {
-    try {
-      setLocatingGps(true);
-      setPermissionNotice('');
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        setPermissionNotice(
-          'Location permission denied. Tap anywhere on the map to drop your complaint pin.'
-        );
-        if (!silent) {
-          Alert.alert(
-            'Permission Denied',
-            'You can enable GPS in Settings or tap directly on the map to pick a location.'
-          );
-        }
-        return;
-      }
+    setLocatingGps(true);
+    setPermissionNotice('');
 
-      const loc = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
-      const coords = {
-        latitude: loc.coords.latitude,
-        longitude: loc.coords.longitude,
-      };
-      setSelectedCoords(coords);
-      mapRef.current?.animateToRegion(
-        {
-          ...coords,
-          latitudeDelta: 0.01,
-          longitudeDelta: 0.01,
-        },
-        400
-      );
-      await reverseGeocodeCoords(coords.latitude, coords.longitude);
-    } catch (err) {
+    const gps = await getCurrentGpsPosition();
+    if (!gps.granted || !gps.coords) {
       setPermissionNotice(
-        'Could not fetch GPS. Tap anywhere on the map to place the pin.'
+        'Location permission or GPS unavailable. Tap anywhere on the map to place the pin.'
       );
       if (!silent) {
-        Alert.alert('GPS Error', 'Unable to fetch current device location.');
+        Alert.alert('GPS Unavailable', gps.message);
       }
-    } finally {
       setLocatingGps(false);
+      return;
     }
+
+    setSelectedCoords(gps.coords);
+    safeAnimateToCoords(gps.coords);
+    await resolveAddress(gps.coords.latitude, gps.coords.longitude);
+    setLocatingGps(false);
   };
 
   const handleMapSelect = async (coordinate) => {
@@ -162,7 +124,7 @@ export default function MapPinPickerModal({
       longitude: coordinate.longitude,
     };
     setSelectedCoords(coords);
-    await reverseGeocodeCoords(coords.latitude, coords.longitude);
+    await resolveAddress(coords.latitude, coords.longitude);
   };
 
   const handleConfirm = () => {

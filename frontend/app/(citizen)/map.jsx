@@ -12,16 +12,16 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
-import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
 import Header from '../../components/Header';
-import Card from '../../components/Card';
 import Badge from '../../components/Badge';
+import IssueCard from '../../components/IssueCard';
 import SupportButton from '../../components/SupportButton';
 import EmptyState from '../../components/EmptyState';
 import MapPinPickerModal from '../../components/MapPinPickerModal';
 import { issueService } from '../../services/api';
+import { getCurrentGpsPosition, isValidCoordinate } from '../../services/location';
 import { APP_CONFIG } from '../../constants/config';
 import { DISTANCE_FILTERS_KM, normalizeStatusLabel } from '../../constants/categories';
 import { COLORS, SPACING, FONT_SIZE, RADIUS, SHADOW } from '../../constants/theme';
@@ -51,23 +51,14 @@ const DEFAULT_REGION = {
 const parseValidCoord = (item) => {
   const lat = Number(item?.latitude);
   const lng = Number(item?.longitude);
-  if (
-    item?.latitude === null ||
-    item?.latitude === undefined ||
-    item?.latitude === '' ||
-    item?.longitude === null ||
-    item?.longitude === undefined ||
-    item?.longitude === '' ||
-    !Number.isFinite(lat) ||
-    !Number.isFinite(lng) ||
-    lat < -90 ||
-    lat > 90 ||
-    lng < -180 ||
-    lng > 180
-  ) {
-    return null;
-  }
-  return { latitude: lat, longitude: lng };
+  return isValidCoordinate(lat, lng) ? { latitude: lat, longitude: lng } : null;
+};
+
+const STATUS_PIN_COLORS = {
+  Resolved: COLORS.resolved,
+  'In Progress': COLORS.inProgress,
+  'Under Review': COLORS.underReview,
+  Reported: COLORS.pending,
 };
 
 export default function NearbyMapScreen() {
@@ -155,45 +146,28 @@ export default function NearbyMapScreen() {
         return;
       }
 
-      try {
-        setLocating(true);
-        const { status } = await Location.requestForegroundPermissionsAsync();
+      setLocating(true);
+      const gps = await getCurrentGpsPosition();
 
-        if (status === 'granted') {
-          setHasLocationPermission(true);
-          setLocationNotice('');
-          try {
-            const loc = await Location.getCurrentPositionAsync({
-              accuracy: Location.Accuracy.Balanced,
-            });
-            const coords = {
-              latitude: Number(loc.coords.latitude),
-              longitude: Number(loc.coords.longitude),
-            };
-            setSearchCenter(coords);
-            setIsManualCenter(false);
-            safeAnimateToRegion(coords, radKm);
-            await fetchIssuesForMap(coords, radKm);
-            return;
-          } catch (gpsErr) {
-            console.warn('GPS fetch error:', gpsErr.message);
-            setLocationNotice(
-              'GPS signal unavailable. Map stays active — tap GPS to retry or Set Pin.'
-            );
-          }
-        } else {
-          setHasLocationPermission(false);
-          setLocationNotice(
-            'Location permission denied. Enable GPS or tap Set Pin to filter by distance.'
-          );
-        }
-
-        // Load available issues even when user location is unavailable
+      if (gps.granted && gps.coords) {
+        setHasLocationPermission(true);
+        setLocationNotice('');
+        setSearchCenter(gps.coords);
+        setIsManualCenter(false);
+        safeAnimateToRegion(gps.coords, radKm);
+        await fetchIssuesForMap(gps.coords, radKm);
+      } else {
+        setHasLocationPermission(Boolean(gps.granted));
+        setLocationNotice(
+          gps.message ||
+            'Location unavailable. Enable GPS or tap Set Pin to filter by distance.'
+        );
+        // Load available issues even when user GPS is unavailable
         await fetchIssuesForMap(searchCenter, radKm);
-      } finally {
-        setLocating(false);
-        setRefreshing(false);
       }
+
+      setLocating(false);
+      setRefreshing(false);
     },
     [radiusKm, isManualCenter, searchCenter, fetchIssuesForMap, safeAnimateToRegion]
   );
@@ -244,64 +218,17 @@ export default function NearbyMapScreen() {
     );
   };
 
-  const getMarkerPinColor = (status) => {
-    switch (normalizeStatusLabel(status)) {
-      case 'Resolved':
-        return COLORS.resolved;
-      case 'In Progress':
-        return COLORS.inProgress;
-      case 'Under Review':
-        return COLORS.underReview;
-      default:
-        return COLORS.pending;
-    }
-  };
+  const getMarkerPinColor = (status) =>
+    STATUS_PIN_COLORS[normalizeStatusLabel(status)] || COLORS.pending;
 
   const renderListCard = ({ item }) => (
-    <Card
+    <IssueCard
+      issue={item}
       onPress={() => router.push(`/(citizen)/issues/${item._id}`)}
-      style={styles.listCard}
-    >
-      <View style={styles.listCardHeader}>
-        <View style={styles.listBadgeRow}>
-          <Badge category={item.category} size="sm" />
-          {item.confirmedUrgency === 'High' ? (
-            <Badge urgency="High" size="sm" />
-          ) : null}
-        </View>
-        <Badge status={item.status} size="sm" />
-      </View>
-
-      <View style={styles.listCardBody}>
-        {item.imageUrl ? (
-          <Image source={{ uri: item.imageUrl }} style={styles.listThumb} />
-        ) : null}
-        <View style={styles.listInfoCol}>
-          <Text style={styles.listTitle} numberOfLines={1}>
-            {item.title}
-          </Text>
-          <Text style={styles.distanceText}>
-            <Ionicons name="navigate-outline" size={12} color={COLORS.primary} />{' '}
-            {typeof item.distanceKm === 'number'
-              ? `${item.distanceKm.toFixed(2)} km away`
-              : 'All Mapped Areas'}
-          </Text>
-          <Text style={styles.listAddress} numberOfLines={1}>
-            {item.address || `${item.latitude.toFixed(4)}, ${item.longitude.toFixed(4)}`}
-          </Text>
-        </View>
-      </View>
-
-      <View style={styles.listCardFooter}>
-        <SupportButton
-          issue={item}
-          currentUserId={user?._id}
-          onUpdated={handleIssueUpdated}
-          compact
-        />
-        <Text style={styles.detailsText}>Details →</Text>
-      </View>
-    </Card>
+      showSupportButton
+      currentUserId={user?._id}
+      onIssueUpdated={handleIssueUpdated}
+    />
   );
 
   return (
@@ -886,60 +813,6 @@ const styles = StyleSheet.create({
   listContent: {
     padding: SPACING.md,
     paddingBottom: SPACING.xl,
-  },
-  listCard: {
-    padding: SPACING.md,
-  },
-  listCardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: SPACING.xs,
-    marginBottom: SPACING.sm,
-  },
-  listBadgeRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 4,
-    flex: 1,
-  },
-  listCardBody: {
-    flexDirection: 'row',
-  },
-  listThumb: {
-    width: 72,
-    height: 72,
-    borderRadius: RADIUS.sm,
-    backgroundColor: COLORS.surfaceAlt,
-    marginRight: SPACING.md,
-  },
-  listInfoCol: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  listTitle: {
-    fontSize: FONT_SIZE.md,
-    fontWeight: '700',
-    color: COLORS.text,
-  },
-  listAddress: {
-    fontSize: FONT_SIZE.xs,
-    color: COLORS.textSecondary,
-  },
-  listCardFooter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: SPACING.sm,
-    paddingTop: SPACING.sm,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.border,
-  },
-  detailsText: {
-    fontSize: FONT_SIZE.xs,
-    color: COLORS.primary,
-    fontWeight: '700',
   },
   fallbackBox: {
     flex: 1,

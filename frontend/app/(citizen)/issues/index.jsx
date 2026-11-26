@@ -5,7 +5,6 @@ import {
   StyleSheet,
   FlatList,
   TouchableOpacity,
-  Image,
   RefreshControl,
   TextInput,
 } from 'react-native';
@@ -14,9 +13,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../../context/AuthContext';
 import Header from '../../../components/Header';
-import Card from '../../../components/Card';
-import Badge from '../../../components/Badge';
-import SupportButton from '../../../components/SupportButton';
+import IssueCard from '../../../components/IssueCard';
 import Loading from '../../../components/Loading';
 import EmptyState from '../../../components/EmptyState';
 import { CATEGORIES } from '../../../constants/categories';
@@ -80,53 +77,14 @@ export default function AllIssuesScreen() {
   };
 
   const renderIssueItem = ({ item }) => (
-    <Card
+    <IssueCard
+      issue={item}
       onPress={() => router.push(`/(citizen)/issues/${item._id}`)}
-      style={styles.card}
-    >
-      <View style={styles.cardHeader}>
-        <View style={styles.badgeWrapRow}>
-          <Badge category={item.category} size="sm" />
-          {item.confirmedUrgency === 'High' ? (
-            <Badge urgency="High" size="sm" />
-          ) : null}
-        </View>
-        <Badge status={item.status} size="sm" />
-      </View>
-
-      <View style={styles.cardBody}>
-        {item.imageUrl ? (
-          <Image source={{ uri: item.imageUrl }} style={styles.thumb} />
-        ) : null}
-        <View style={styles.contentCol}>
-          <Text style={styles.title} numberOfLines={1}>
-            {item.title}
-          </Text>
-          <Text style={styles.description} numberOfLines={2}>
-            {item.description}
-          </Text>
-          <View style={styles.metaRow}>
-            <Ionicons name="location-outline" size={14} color={COLORS.textSecondary} />
-            <Text style={styles.locationText} numberOfLines={1}>
-              {item.address || 'GPS Coordinates'}
-            </Text>
-          </View>
-          <Text style={styles.dateText}>
-            Reported: {new Date(item.createdAt).toLocaleDateString()}
-          </Text>
-        </View>
-      </View>
-
-      <View style={styles.cardFooter}>
-        <SupportButton
-          issue={item}
-          currentUserId={user?._id}
-          onUpdated={handleIssueUpdated}
-          compact
-        />
-        <Text style={styles.detailsLink}>Details →</Text>
-      </View>
-    </Card>
+      showSupportButton
+      currentUserId={user?._id}
+      onIssueUpdated={handleIssueUpdated}
+      datePrefix="Reported: "
+    />
   );
 
   return (
@@ -411,78 +369,6 @@ const styles = StyleSheet.create({
   listContent: {
     padding: SPACING.md,
     paddingBottom: SPACING.xl,
-  },
-  card: {
-    padding: SPACING.md,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: SPACING.xs,
-    marginBottom: SPACING.sm,
-  },
-  badgeWrapRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: SPACING.xs,
-    flex: 1,
-  },
-  cardBody: {
-    flexDirection: 'row',
-  },
-  thumb: {
-    width: 80,
-    height: 80,
-    borderRadius: RADIUS.md,
-    backgroundColor: COLORS.surfaceAlt,
-    marginRight: SPACING.md,
-  },
-  contentCol: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  title: {
-    fontSize: FONT_SIZE.md,
-    fontWeight: '700',
-    color: COLORS.text,
-    marginBottom: 4,
-  },
-  description: {
-    fontSize: FONT_SIZE.xs,
-    color: COLORS.textSecondary,
-    lineHeight: 16,
-    marginBottom: 6,
-  },
-  metaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 2,
-  },
-  locationText: {
-    fontSize: FONT_SIZE.xs,
-    color: COLORS.textSecondary,
-    marginLeft: 4,
-    flex: 1,
-  },
-  dateText: {
-    fontSize: FONT_SIZE.xs,
-    color: COLORS.textMuted,
-  },
-  cardFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: SPACING.sm,
-    paddingTop: SPACING.sm,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.border,
-  },
-  detailsLink: {
-    fontSize: FONT_SIZE.xs,
-    color: COLORS.primary,
-    fontWeight: '700',
   },
   errorContainer: {
     flex: 1,

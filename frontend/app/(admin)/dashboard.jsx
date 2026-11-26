@@ -6,7 +6,6 @@ import {
   ScrollView,
   RefreshControl,
   TouchableOpacity,
-  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -14,8 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
 import { useNotifications } from '../../context/NotificationContext';
 import { adminService } from '../../services/api';
-import Card from '../../components/Card';
-import Badge from '../../components/Badge';
+import IssueCard from '../../components/IssueCard';
 import NotificationBell from '../../components/NotificationBell';
 import Loading from '../../components/Loading';
 import EmptyState from '../../components/EmptyState';
@@ -206,41 +204,13 @@ export default function AdminDashboard() {
           />
         ) : (
           recentIssues.map((issue) => (
-            <Card
+            <IssueCard
               key={issue._id}
+              issue={issue}
               onPress={() => router.push(`/(admin)/issues/${issue._id}`)}
-              style={styles.issueCard}
-            >
-              <View style={styles.cardHeader}>
-                <View style={styles.badgeGroup}>
-                  <Badge category={issue.category} size="sm" />
-                  {issue.confirmedUrgency === 'High' ? (
-                    <Badge urgency="High" size="sm" />
-                  ) : issue.requestedUrgency === 'High' ? (
-                    <Badge urgency="High" size="sm" label="Req: High" />
-                  ) : null}
-                </View>
-                <Badge status={issue.status} size="sm" />
-              </View>
-
-              <View style={styles.cardBody}>
-                {issue.imageUrl ? (
-                  <Image source={{ uri: issue.imageUrl }} style={styles.thumb} />
-                ) : null}
-                <View style={styles.issueInfo}>
-                  <Text style={styles.issueTitle} numberOfLines={1}>
-                    {issue.title}
-                  </Text>
-                  <Text style={styles.issueDesc} numberOfLines={2}>
-                    {issue.description}
-                  </Text>
-                  <Text style={styles.reporterText}>
-                    By: {issue.reportedBy?.name || 'Citizen'} •{' '}
-                    {issue.supportCount || 0} supporters
-                  </Text>
-                </View>
-              </View>
-            </Card>
+              showRequestedUrgency
+              showReporter
+            />
           ))
         )}
       </ScrollView>
@@ -411,51 +381,5 @@ const styles = StyleSheet.create({
     color: COLORS.danger,
     fontSize: FONT_SIZE.sm,
     textAlign: 'center',
-  },
-  issueCard: {
-    padding: SPACING.md,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: SPACING.xs,
-    marginBottom: SPACING.sm,
-  },
-  badgeGroup: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 4,
-    flex: 1,
-  },
-  cardBody: {
-    flexDirection: 'row',
-  },
-  thumb: {
-    width: 70,
-    height: 70,
-    borderRadius: RADIUS.sm,
-    backgroundColor: COLORS.surfaceAlt,
-    marginRight: SPACING.md,
-  },
-  issueInfo: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  issueTitle: {
-    fontSize: FONT_SIZE.md,
-    fontWeight: '700',
-    color: COLORS.text,
-    marginBottom: 4,
-  },
-  issueDesc: {
-    fontSize: FONT_SIZE.xs,
-    color: COLORS.textSecondary,
-    marginBottom: 4,
-  },
-  reporterText: {
-    fontSize: FONT_SIZE.xs,
-    color: COLORS.textMuted,
   },
 });

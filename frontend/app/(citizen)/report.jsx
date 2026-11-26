@@ -14,7 +14,6 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
-import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
 import { useNotifications } from '../../context/NotificationContext';
 import Header from '../../components/Header';
@@ -23,6 +22,11 @@ import Button from '../../components/Button';
 import MapPinPickerModal from '../../components/MapPinPickerModal';
 import { CATEGORIES, URGENCY_LEVELS } from '../../constants/categories';
 import { uploadService, issueService } from '../../services/api';
+import {
+  formatAddressFromCoords,
+  getCurrentGpsPosition,
+  isValidCoordinate,
+} from '../../services/location';
 import { COLORS, SPACING, FONT_SIZE, RADIUS } from '../../constants/theme';
 
 export default function ReportIssueScreen() {
@@ -52,80 +56,34 @@ export default function ReportIssueScreen() {
   const [errorMessage, setErrorMessage] = useState('');
 
   const getCurrentLocation = useCallback(async (silent = false, force = false) => {
-    // Do not overwrite user's confirmed manual map pin on silent background fetches
+    // Keep the user's confirmed manual map pin unless GPS refresh is explicitly requested
     if (isManualPin && !force) return;
 
-    try {
-      setGettingLocation(true);
-      setGpsStatusMessage('Fetching your current GPS coordinates...');
+    setGettingLocation(true);
+    setGpsStatusMessage('Fetching your current GPS coordinates...');
 
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        setGpsStatusMessage(
-          'Location permission denied. Tap "Pick on Map" or enter coordinates manually.'
-        );
-        if (!silent) {
-          Alert.alert(
-            'Location Permission Denied',
-            'You can allow GPS permission in Settings, pick a pin on the map, or enter coordinates manually.'
-          );
-        }
-        return;
-      }
-
-      const currentLocation = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
-
-      const { latitude, longitude } = currentLocation.coords;
-
-      let formattedAddress = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
-      try {
-        const addresses = await Location.reverseGeocodeAsync({
-          latitude,
-          longitude,
-        });
-        if (addresses && addresses.length > 0) {
-          const item = addresses[0];
-          const parts = [
-            item.name,
-            item.street,
-            item.district || item.subregion,
-            item.city,
-            item.postalCode,
-          ].filter(Boolean);
-          if (parts.length > 0) {
-            formattedAddress = parts.join(', ');
-          }
-        }
-      } catch (geocodeErr) {
-        console.warn('Reverse geocoding error:', geocodeErr);
-      }
-
-      setLocation({
-        latitude,
-        longitude,
-        address: formattedAddress,
-      });
-      setIsManualPin(false);
-      setManualLat(latitude.toFixed(6));
-      setManualLng(longitude.toFixed(6));
-      setGpsStatusMessage('');
-      setShowManualCoords(false);
-    } catch (e) {
-      console.warn('Location error:', e);
+    const gps = await getCurrentGpsPosition();
+    if (!gps.granted || !gps.coords) {
       setGpsStatusMessage(
         'GPS unavailable. Tap "Pick on Map" or enter coordinates manually.'
       );
       if (!silent) {
-        Alert.alert(
-          'GPS Signal Unavailable',
-          'Could not obtain precise GPS coordinates. Please pick the location on the map or enter coordinates manually.'
-        );
+        Alert.alert('Location Unavailable', gps.message);
       }
-    } finally {
       setGettingLocation(false);
+      return;
     }
+
+    const { latitude, longitude } = gps.coords;
+    const formattedAddress = await formatAddressFromCoords(latitude, longitude);
+
+    setLocation({ latitude, longitude, address: formattedAddress });
+    setIsManualPin(false);
+    setManualLat(latitude.toFixed(6));
+    setManualLng(longitude.toFixed(6));
+    setGpsStatusMessage('');
+    setShowManualCoords(false);
+    setGettingLocation(false);
   }, [isManualPin]);
 
   useEffect(() => {
@@ -150,49 +108,33 @@ export default function ReportIssueScreen() {
   const pickImage = async (useCamera = false) => {
     if (submitting) return;
     try {
-      let result;
-      if (useCamera) {
-        const { status } = await ImagePicker.requestCameraPermissionsAsync();
-        if (status !== 'granted') {
-          Alert.alert(
-            'Camera Permission Denied',
-            'FixMyStreet needs camera access to take photos of street issues.'
-          );
-          return;
-        }
-        result = await ImagePicker.launchCameraAsync({
-          mediaTypes: ['images'],
-          allowsEditing: true,
-          aspect: [4, 3],
-          quality: 0.55,
-          base64: true,
-        });
-      } else {
-        const { status } =
-          await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (status !== 'granted') {
-          Alert.alert(
-            'Gallery Permission Denied',
-            'FixMyStreet needs photo library access to upload photos.'
-          );
-          return;
-        }
-        result = await ImagePicker.launchImageLibraryAsync({
-          mediaTypes: ['images'],
-          allowsEditing: true,
-          aspect: [4, 3],
-          quality: 0.55,
-          base64: true,
-        });
+      const permission = useCamera
+        ? await ImagePicker.requestCameraPermissionsAsync()
+        : await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+      if (permission.status !== 'granted') {
+        Alert.alert(
+          useCamera ? 'Camera Permission Denied' : 'Gallery Permission Denied',
+          `FixMyStreet needs ${useCamera ? 'camera' : 'photo library'} access.`
+        );
+        return;
       }
 
-      if (!result.canceled && result.assets && result.assets.length > 0) {
+      const pickerOptions = {
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.55,
+        base64: true,
+      };
+      const result = useCamera
+        ? await ImagePicker.launchCameraAsync(pickerOptions)
+        : await ImagePicker.launchImageLibraryAsync(pickerOptions);
+
+      if (!result.canceled && result.assets?.length > 0) {
         const selected = result.assets[0];
         if (selected.fileSize && selected.fileSize > 5 * 1024 * 1024) {
-          Alert.alert(
-            'Photo Too Large',
-            'Please choose an image smaller than 5MB.'
-          );
+          Alert.alert('Photo Too Large', 'Please choose an image smaller than 5MB.');
           return;
         }
         setImageAsset(selected);
@@ -208,28 +150,12 @@ export default function ReportIssueScreen() {
     if (showManualCoords && manualLat.trim() !== '' && manualLng.trim() !== '') {
       const lat = Number(manualLat.trim());
       const lng = Number(manualLng.trim());
-      if (
-        Number.isFinite(lat) &&
-        Number.isFinite(lng) &&
-        lat >= -90 &&
-        lat <= 90 &&
-        lng >= -180 &&
-        lng <= 180
-      ) {
-        return { latitude: lat, longitude: lng };
-      }
-      return null;
+      return isValidCoordinate(lat, lng) ? { latitude: lat, longitude: lng } : null;
     }
 
-    if (
-      typeof location.latitude === 'number' &&
-      typeof location.longitude === 'number' &&
-      Number.isFinite(location.latitude) &&
-      Number.isFinite(location.longitude)
-    ) {
+    if (isValidCoordinate(location.latitude, location.longitude)) {
       return { latitude: location.latitude, longitude: location.longitude };
     }
-
     return null;
   };
 

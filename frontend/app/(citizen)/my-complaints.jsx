@@ -4,16 +4,13 @@ import {
   Text,
   StyleSheet,
   FlatList,
-  Image,
   RefreshControl,
   TouchableOpacity,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
 import Header from '../../components/Header';
-import Card from '../../components/Card';
-import Badge from '../../components/Badge';
+import IssueCard from '../../components/IssueCard';
 import Loading from '../../components/Loading';
 import EmptyState from '../../components/EmptyState';
 import { issueService } from '../../services/api';
@@ -53,47 +50,12 @@ export default function MyComplaintsScreen() {
   };
 
   const renderItem = ({ item }) => (
-    <Card
+    <IssueCard
+      issue={item}
       onPress={() => router.push(`/(citizen)/issues/${item._id}`)}
-      style={styles.card}
-    >
-      <View style={styles.cardHeader}>
-        <Badge category={item.category} size="sm" />
-        <Badge status={item.status} size="sm" />
-      </View>
-
-      <View style={styles.cardBody}>
-        {item.imageUrl ? (
-          <Image source={{ uri: item.imageUrl }} style={styles.thumb} />
-        ) : null}
-        <View style={styles.contentCol}>
-          <Text style={styles.title} numberOfLines={1}>
-            {item.title}
-          </Text>
-          <Text style={styles.description} numberOfLines={2}>
-            {item.description}
-          </Text>
-          <View style={styles.locationRow}>
-            <Ionicons name="location-outline" size={14} color={COLORS.textSecondary} />
-            <Text style={styles.locationText} numberOfLines={1}>
-              {item.address || 'GPS Coordinates'}
-            </Text>
-          </View>
-          <Text style={styles.dateText}>
-            Filed on: {new Date(item.createdAt).toLocaleDateString()}
-          </Text>
-        </View>
-      </View>
-
-      {item.adminNote ? (
-        <View style={styles.adminNoteBox}>
-          <Ionicons name="chatbubble-ellipses-outline" size={14} color={COLORS.primary} />
-          <Text style={styles.adminNoteText} numberOfLines={1}>
-            Admin: {item.adminNote}
-          </Text>
-        </View>
-      ) : null}
-    </Card>
+      datePrefix="Filed on: "
+      showAdminNote
+    />
   );
 
   return (
@@ -148,69 +110,6 @@ const styles = StyleSheet.create({
   listContent: {
     padding: SPACING.md,
     paddingBottom: SPACING.xl,
-  },
-  card: {
-    padding: SPACING.md,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: SPACING.sm,
-  },
-  cardBody: {
-    flexDirection: 'row',
-  },
-  thumb: {
-    width: 80,
-    height: 80,
-    borderRadius: RADIUS.md,
-    backgroundColor: COLORS.surfaceAlt,
-    marginRight: SPACING.md,
-  },
-  contentCol: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  title: {
-    fontSize: FONT_SIZE.md,
-    fontWeight: '700',
-    color: COLORS.text,
-    marginBottom: 4,
-  },
-  description: {
-    fontSize: FONT_SIZE.xs,
-    color: COLORS.textSecondary,
-    marginBottom: 6,
-  },
-  locationRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 2,
-  },
-  locationText: {
-    fontSize: FONT_SIZE.xs,
-    color: COLORS.textSecondary,
-    marginLeft: 4,
-    flex: 1,
-  },
-  dateText: {
-    fontSize: FONT_SIZE.xs,
-    color: COLORS.textMuted,
-  },
-  adminNoteBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: COLORS.surfaceAlt,
-    borderRadius: RADIUS.sm,
-    padding: SPACING.xs,
-    marginTop: SPACING.sm,
-  },
-  adminNoteText: {
-    fontSize: FONT_SIZE.xs,
-    color: COLORS.text,
-    marginLeft: SPACING.xs,
-    fontWeight: '500',
-    flex: 1,
   },
   errorBox: {
     flex: 1,

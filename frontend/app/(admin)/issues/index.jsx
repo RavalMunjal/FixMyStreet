@@ -6,15 +6,13 @@ import {
   FlatList,
   TextInput,
   TouchableOpacity,
-  Image,
   RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Header from '../../../components/Header';
-import Card from '../../../components/Card';
-import Badge from '../../../components/Badge';
+import IssueCard from '../../../components/IssueCard';
 import Loading from '../../../components/Loading';
 import EmptyState from '../../../components/EmptyState';
 import { CATEGORIES } from '../../../constants/categories';
@@ -73,48 +71,14 @@ export default function AdminIssuesScreen() {
   };
 
   const renderItem = ({ item }) => (
-    <Card
+    <IssueCard
+      issue={item}
       onPress={() => router.push(`/(admin)/issues/${item._id}`)}
-      style={styles.card}
-    >
-      <View style={styles.cardHeader}>
-        <View style={styles.badgeWrap}>
-          <Badge category={item.category} size="sm" />
-          {item.confirmedUrgency === 'High' ? (
-            <Badge urgency="High" size="sm" />
-          ) : item.requestedUrgency === 'High' ? (
-            <Badge urgency="High" size="sm" label="Req: High" />
-          ) : null}
-        </View>
-        <Badge status={item.status} size="sm" />
-      </View>
-
-      <View style={styles.cardBody}>
-        {item.imageUrl ? (
-          <Image source={{ uri: item.imageUrl }} style={styles.thumb} />
-        ) : null}
-        <View style={styles.contentCol}>
-          <Text style={styles.title} numberOfLines={1}>
-            {item.title}
-          </Text>
-          <Text style={styles.desc} numberOfLines={2}>
-            {item.description}
-          </Text>
-          <Text style={styles.metaText} numberOfLines={1}>
-            Reporter: {item.reportedBy?.name || 'Citizen'} •{' '}
-            {item.supportCount || 0} supporters
-          </Text>
-          <Text style={styles.dateText}>
-            Submitted: {new Date(item.createdAt).toLocaleDateString()}
-          </Text>
-        </View>
-      </View>
-
-      <View style={styles.actionRow}>
-        <Text style={styles.actionPrompt}>Tap to update timeline / urgency / resolve</Text>
-        <Ionicons name="create-outline" size={16} color={COLORS.secondary} />
-      </View>
-    </Card>
+      showRequestedUrgency
+      showReporter
+      datePrefix="Submitted: "
+      footerPrompt="Tap to update timeline / urgency / resolve"
+    />
   );
 
   return (
@@ -427,72 +391,6 @@ const styles = StyleSheet.create({
   listContent: {
     padding: SPACING.md,
     paddingBottom: SPACING.xl,
-  },
-  card: {
-    padding: SPACING.md,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: SPACING.xs,
-    marginBottom: SPACING.sm,
-  },
-  badgeWrap: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 4,
-    flex: 1,
-  },
-  cardBody: {
-    flexDirection: 'row',
-  },
-  thumb: {
-    width: 75,
-    height: 75,
-    borderRadius: RADIUS.sm,
-    backgroundColor: COLORS.surfaceAlt,
-    marginRight: SPACING.md,
-  },
-  contentCol: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  title: {
-    fontSize: FONT_SIZE.md,
-    fontWeight: '700',
-    color: COLORS.text,
-    marginBottom: 4,
-  },
-  desc: {
-    fontSize: FONT_SIZE.xs,
-    color: COLORS.textSecondary,
-    marginBottom: 4,
-  },
-  metaText: {
-    fontSize: FONT_SIZE.xs,
-    color: COLORS.textSecondary,
-    fontWeight: '500',
-  },
-  dateText: {
-    fontSize: FONT_SIZE.xs,
-    color: COLORS.textMuted,
-    marginTop: 2,
-  },
-  actionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: SPACING.sm,
-    paddingTop: SPACING.xs,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.border,
-  },
-  actionPrompt: {
-    fontSize: FONT_SIZE.xs,
-    color: COLORS.secondary,
-    fontWeight: '600',
   },
   errorContainer: {
     flex: 1,
