@@ -1,16 +1,67 @@
+import { Alert, Linking } from 'react-native';
 import * as Location from 'expo-location';
 
-// Check that latitude and longitude are valid real numbers within GPS bounds
+// Check that latitude and longitude are valid finite numbers within GPS bounds
 export const isValidCoordinate = (latitude, longitude) => {
   return (
     typeof latitude === 'number' &&
     typeof longitude === 'number' &&
-    !Number.isNaN(latitude) &&
-    !Number.isNaN(longitude) &&
+    Number.isFinite(latitude) &&
+    Number.isFinite(longitude) &&
     Math.abs(latitude) <= 90 &&
     Math.abs(longitude) <= 180 &&
     !(latitude === 0 && longitude === 0)
   );
+};
+
+// Build standard Google Maps directions URL for the given destination coordinates
+export const buildGoogleMapsDirectionsUrl = (latitude, longitude) => {
+  const lat = Number(latitude);
+  const lng = Number(longitude);
+  if (
+    latitude === null ||
+    latitude === undefined ||
+    latitude === '' ||
+    longitude === null ||
+    longitude === undefined ||
+    longitude === '' ||
+    !isValidCoordinate(lat, lng)
+  ) {
+    return null;
+  }
+  return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+};
+
+// Open Google Maps (or browser fallback) to navigate from user's location to the issue
+export const openGoogleMapsDirections = async (latitude, longitude) => {
+  const url = buildGoogleMapsDirectionsUrl(latitude, longitude);
+  if (!url) {
+    Alert.alert(
+      'Location Unavailable',
+      'This complaint does not have valid GPS coordinates for directions.'
+    );
+    return false;
+  }
+
+  try {
+    const supported = await Linking.canOpenURL(url);
+    if (!supported) {
+      Alert.alert(
+        'Cannot Open Maps',
+        'No Google Maps app or web browser is available to open directions.'
+      );
+      return false;
+    }
+    await Linking.openURL(url);
+    return true;
+  } catch (err) {
+    console.warn('Failed to open Google Maps directions:', err.message);
+    Alert.alert(
+      'Cannot Open Maps',
+      'Unable to launch Google Maps directions on this device.'
+    );
+    return false;
+  }
 };
 
 // Convert coordinates into a readable street address (falls back to lat, lng)

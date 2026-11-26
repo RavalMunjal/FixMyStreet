@@ -10,7 +10,7 @@ import {
   Platform,
   RefreshControl,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
@@ -21,7 +21,11 @@ import SupportButton from '../../components/SupportButton';
 import EmptyState from '../../components/EmptyState';
 import MapPinPickerModal from '../../components/MapPinPickerModal';
 import { issueService } from '../../services/api';
-import { getCurrentGpsPosition, isValidCoordinate } from '../../services/location';
+import {
+  getCurrentGpsPosition,
+  isValidCoordinate,
+  openGoogleMapsDirections,
+} from '../../services/location';
 import { APP_CONFIG } from '../../constants/config';
 import { DISTANCE_FILTERS_KM, normalizeStatusLabel } from '../../constants/categories';
 import { COLORS, SPACING, FONT_SIZE, RADIUS, SHADOW } from '../../constants/theme';
@@ -29,6 +33,7 @@ import { COLORS, SPACING, FONT_SIZE, RADIUS, SHADOW } from '../../constants/them
 let MapView = null;
 let Marker = null;
 let Circle = null;
+let PROVIDER_GOOGLE;
 
 if (Platform.OS !== 'web') {
   try {
@@ -36,6 +41,7 @@ if (Platform.OS !== 'web') {
     MapView = Maps.default || Maps;
     Marker = Maps.Marker;
     Circle = Maps.Circle;
+    PROVIDER_GOOGLE = Maps.PROVIDER_GOOGLE;
   } catch (e) {
     console.warn('react-native-maps failed to load:', e.message);
   }
@@ -49,8 +55,20 @@ const DEFAULT_REGION = {
 };
 
 const parseValidCoord = (item) => {
-  const lat = Number(item?.latitude);
-  const lng = Number(item?.longitude);
+  const rawLat = item?.latitude ?? item?.location?.coordinates?.[1];
+  const rawLng = item?.longitude ?? item?.location?.coordinates?.[0];
+  if (
+    rawLat === null ||
+    rawLat === undefined ||
+    rawLat === '' ||
+    rawLng === null ||
+    rawLng === undefined ||
+    rawLng === ''
+  ) {
+    return null;
+  }
+  const lat = Number(rawLat);
+  const lng = Number(rawLng);
   return isValidCoordinate(lat, lng) ? { latitude: lat, longitude: lng } : null;
 };
 
@@ -63,12 +81,13 @@ const STATUS_PIN_COLORS = {
 
 export default function NearbyMapScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const mapRef = useRef(null);
   const mapReadyRef = useRef(false);
 
   const [issues, setIssues] = useState([]);
-  const [radiusKm, setRadiusKm] = useState(3);
+  const [radiusKm, setRadiusKm] = useState(3); // 1 | 3 | 5 | 'all'
   const [viewMode, setViewMode] = useState('map'); // 'map' | 'list'
   const [searchCenter, setSearchCenter] = useState(null); // { latitude, longitude }
   const [isManualCenter, setIsManualCenter] = useState(false);
@@ -85,7 +104,8 @@ export default function NearbyMapScreen() {
   const safeAnimateToRegion = useCallback((coords, radKm) => {
     if (!mapReadyRef.current || !mapRef.current || !coords) return;
     try {
-      const delta = Math.max(0.015, (radKm / 111) * 2.4);
+      const numericKm = radKm === 'all' ? 12 : Number(radKm) || 3;
+      const delta = Math.max(0.015, (numericKm / 111) * 2.4);
       mapRef.current.animateToRegion(
         {
           latitude: Number(coords.latitude),
@@ -101,43 +121,52 @@ export default function NearbyMapScreen() {
   }, []);
 
   // Fetch issues independently so map stays visible even if API fails or returns 0 items
-  const fetchIssuesForMap = useCallback(async (coords, radKm) => {
-    try {
-      setLoadingIssues(true);
-      setApiError('');
+  const fetchIssuesForMap = useCallback(
+    async (coords, radKm) => {
+      try {
+        setLoadingIssues(true);
+        setApiError('');
 
-      const res = coords
-        ? await issueService.getNearby(coords.latitude, coords.longitude, radKm)
-        : await issueService.getAll({ limit: 100 });
+        const res =
+          coords && radKm !== 'all'
+            ? await issueService.getNearby(coords.latitude, coords.longitude, radKm)
+            : await issueService.getAll({ limit: 100 });
 
-      const items = res?.data?.issues || [];
-      const seen = new Set();
-      const valid = [];
+        const items = res?.data?.issues || [];
+        const seen = new Set();
+        const valid = [];
 
-      for (const item of items) {
-        const parsed = parseValidCoord(item);
-        if (item?._id && !seen.has(item._id) && parsed) {
-          seen.add(item._id);
-          valid.push({
-            ...item,
-            latitude: parsed.latitude,
-            longitude: parsed.longitude,
-          });
+        for (const item of items) {
+          const parsed = parseValidCoord(item);
+          if (item?._id && !seen.has(item._id) && parsed) {
+            seen.add(item._id);
+            valid.push({
+              ...item,
+              latitude: parsed.latitude,
+              longitude: parsed.longitude,
+            });
+          }
         }
-      }
 
-      setIssues(valid);
-      setSelectedIssue((prev) =>
-        prev ? valid.find((v) => v._id === prev._id) || null : null
-      );
-    } catch (err) {
-      console.warn('Error fetching map issues:', err.message);
-      setApiError(err.message || 'Unable to load complaints from backend.');
-    } finally {
-      setLoadingIssues(false);
-      setRefreshing(false);
-    }
-  }, []);
+        setIssues(valid);
+        setSelectedIssue((prev) =>
+          prev ? valid.find((v) => v._id === prev._id) || null : null
+        );
+
+        // Center map on the first valid public pin when user GPS is unavailable
+        if ((!coords || radKm === 'all') && valid.length > 0) {
+          safeAnimateToRegion(coords || valid[0], radKm);
+        }
+      } catch (err) {
+        console.warn('Error fetching map issues:', err.message);
+        setApiError(err.message || 'Unable to load complaints from backend.');
+      } finally {
+        setLoadingIssues(false);
+        setRefreshing(false);
+      }
+    },
+    [safeAnimateToRegion]
+  );
 
   const fetchDeviceLocationAndIssues = useCallback(
     async (radKm = radiusKm, forceGps = false) => {
@@ -236,12 +265,21 @@ export default function NearbyMapScreen() {
       <Header
         title="Nearby Issues"
         subtitle={
-          searchCenter
+          radiusKm === 'all'
+            ? `${issues.length} public street reports`
+            : searchCenter
             ? `${issues.length} reports within ${radiusKm} km`
             : `${issues.length} street reports`
         }
         rightComponent={
           <View style={styles.viewToggle}>
+            <TouchableOpacity
+              onPress={() => fetchIssuesForMap(searchCenter, radiusKm)}
+              style={styles.viewToggleBtn}
+              accessibilityLabel="Refresh map issues"
+            >
+              <Ionicons name="refresh" size={16} color={COLORS.primary} />
+            </TouchableOpacity>
             <TouchableOpacity
               onPress={() => setViewMode('map')}
               style={[
@@ -275,11 +313,11 @@ export default function NearbyMapScreen() {
       {/* Distance Filters & Location Actions Bar */}
       <View style={styles.filterBar}>
         <View style={styles.distanceRow}>
-          {DISTANCE_FILTERS_KM.map((km) => {
+          {[...DISTANCE_FILTERS_KM, 'all'].map((km) => {
             const active = radiusKm === km;
             return (
               <TouchableOpacity
-                key={km}
+                key={String(km)}
                 onPress={() => handleSelectRadius(km)}
                 style={[styles.radiusChip, active && styles.radiusChipActive]}
               >
@@ -289,7 +327,7 @@ export default function NearbyMapScreen() {
                     active && styles.radiusChipTextActive,
                   ]}
                 >
-                  {km} km
+                  {km === 'all' ? 'All' : `${km} km`}
                 </Text>
               </TouchableOpacity>
             );
@@ -344,7 +382,10 @@ export default function NearbyMapScreen() {
           data={issues}
           keyExtractor={(item) => item._id}
           renderItem={renderListCard}
-          contentContainerStyle={styles.listContent}
+          contentContainerStyle={[
+            styles.listContent,
+            { paddingBottom: Math.max(insets.bottom, SPACING.md) + SPACING.xl },
+          ]}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -360,15 +401,15 @@ export default function NearbyMapScreen() {
               <EmptyState
                 icon="checkmark-circle-outline"
                 title={
-                  searchCenter
+                  searchCenter && radiusKm !== 'all'
                     ? `No Issues Within ${radiusKm} km`
                     : 'No Complaints Found'
                 }
-                description="Try expanding your distance filter to 5 km or picking another pin location."
-                actionLabel={radiusKm < 5 ? 'Expand to 5 km' : 'Set Map Pin'}
+                description="Try expanding your distance filter to All or picking another pin location."
+                actionLabel={radiusKm !== 'all' ? 'Show All Issues' : 'Set Map Pin'}
                 onAction={() =>
-                  radiusKm < 5
-                    ? handleSelectRadius(5)
+                  radiusKm !== 'all'
+                    ? handleSelectRadius('all')
                     : setManualModalVisible(true)
                 }
               />
@@ -380,6 +421,7 @@ export default function NearbyMapScreen() {
           {MapView ? (
             <MapView
               ref={mapRef}
+              provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
               style={styles.map}
               initialRegion={DEFAULT_REGION}
               showsUserLocation={hasLocationPermission && !isManualCenter}
@@ -392,11 +434,13 @@ export default function NearbyMapScreen() {
                 mapReadyRef.current = true;
                 if (searchCenter) {
                   safeAnimateToRegion(searchCenter, radiusKm);
+                } else if (issues.length > 0) {
+                  safeAnimateToRegion(issues[0], radiusKm);
                 }
               }}
               onPress={() => setSelectedIssue(null)}
             >
-              {searchCenter && Circle ? (
+              {searchCenter && radiusKm !== 'all' && Circle ? (
                 <Circle
                   center={{
                     latitude: searchCenter.latitude,
@@ -456,7 +500,7 @@ export default function NearbyMapScreen() {
           <View style={styles.legend}>
             <View style={styles.legendItem}>
               <View style={[styles.dot, { backgroundColor: COLORS.pending }]} />
-              <Text style={styles.legendText}>Reported</Text>
+              <Text style={styles.legendText}>Pending</Text>
             </View>
             <View style={styles.legendItem}>
               <View style={[styles.dot, { backgroundColor: COLORS.underReview }]} />
@@ -464,7 +508,7 @@ export default function NearbyMapScreen() {
             </View>
             <View style={styles.legendItem}>
               <View style={[styles.dot, { backgroundColor: COLORS.inProgress }]} />
-              <Text style={styles.legendText}>Progress</Text>
+              <Text style={styles.legendText}>In Progress</Text>
             </View>
             <View style={styles.legendItem}>
               <View style={[styles.dot, { backgroundColor: COLORS.resolved }]} />
@@ -477,8 +521,8 @@ export default function NearbyMapScreen() {
             <View style={styles.emptyMapPill}>
               <Ionicons name="information-circle-outline" size={16} color={COLORS.primary} />
               <Text style={styles.emptyMapPillText}>
-                {searchCenter
-                  ? `No issues within ${radiusKm} km. Try 5 km or Set Pin.`
+                {searchCenter && radiusKm !== 'all'
+                  ? `No issues within ${radiusKm} km. Try All or Set Pin.`
                   : 'No complaints plotted yet.'}
               </Text>
             </View>
@@ -516,11 +560,15 @@ export default function NearbyMapScreen() {
                   </Text>
                   <Text style={styles.distanceText}>
                     {typeof selectedIssue.distanceKm === 'number'
-                      ? `${selectedIssue.distanceKm.toFixed(2)} km away`
+                      ? `${selectedIssue.distanceKm.toFixed(2)} km away • `
+                      : ''}
+                    {selectedIssue.createdAt
+                      ? `Reported: ${new Date(selectedIssue.createdAt).toLocaleDateString()}`
                       : 'Mapped Location'}
                   </Text>
                   <Text style={styles.previewAddress} numberOfLines={1}>
-                    {selectedIssue.address || 'GPS Coordinates'}
+                    {selectedIssue.address ||
+                      `${selectedIssue.latitude.toFixed(5)}, ${selectedIssue.longitude.toFixed(5)}`}
                   </Text>
                 </View>
               </View>
@@ -532,15 +580,30 @@ export default function NearbyMapScreen() {
                   onUpdated={handleIssueUpdated}
                   compact
                 />
-                <TouchableOpacity
-                  style={styles.viewDetailsBtn}
-                  onPress={() =>
-                    router.push(`/(citizen)/issues/${selectedIssue._id}`)
-                  }
-                >
-                  <Text style={styles.viewDetailsText}>Details</Text>
-                  <Ionicons name="arrow-forward" size={14} color="#ffffff" />
-                </TouchableOpacity>
+                <View style={styles.previewActionGroup}>
+                  <TouchableOpacity
+                    style={styles.directionsMiniBtn}
+                    onPress={() =>
+                      openGoogleMapsDirections(
+                        selectedIssue.latitude,
+                        selectedIssue.longitude
+                      )
+                    }
+                  >
+                    <Ionicons name="navigate-outline" size={14} color={COLORS.primary} />
+                    <Text style={styles.directionsMiniText}>Directions</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.viewDetailsBtn}
+                    onPress={() =>
+                      router.push(`/(citizen)/issues/${selectedIssue._id}`)
+                    }
+                  >
+                    <Text style={styles.viewDetailsText}>View Details</Text>
+                    <Ionicons name="arrow-forward" size={14} color="#ffffff" />
+                  </TouchableOpacity>
+                </View>
               </View>
             </View>
           ) : null}
@@ -790,11 +853,34 @@ const styles = StyleSheet.create({
   },
   previewFooter: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: SPACING.xs,
     paddingTop: SPACING.xs,
     borderTopWidth: 1,
     borderTopColor: COLORS.border,
+  },
+  previewActionGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  directionsMiniBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: SPACING.sm + 2,
+    paddingVertical: 7,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.primaryLight,
+  },
+  directionsMiniText: {
+    color: COLORS.primary,
+    fontSize: FONT_SIZE.xs,
+    fontWeight: '700',
   },
   viewDetailsBtn: {
     backgroundColor: COLORS.primary,

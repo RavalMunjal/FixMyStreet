@@ -25,6 +25,7 @@ import StatusTimeline from '../../../components/StatusTimeline';
 import Loading from '../../../components/Loading';
 import { normalizeStatusLabel } from '../../../constants/categories';
 import { issueService, adminService, uploadService } from '../../../services/api';
+import { isValidCoordinate, openGoogleMapsDirections } from '../../../services/location';
 import { COLORS, SPACING, FONT_SIZE, RADIUS } from '../../../constants/theme';
 
 let MapView, Marker, PROVIDER_GOOGLE;
@@ -229,11 +230,10 @@ export default function AdminIssueReviewScreen() {
   const displayedProofUri =
     resolutionAsset?.uri || (!removedExistingProof ? issue.resolutionImageUrl : null);
 
-  const hasValidCoords =
-    typeof issue.latitude === 'number' &&
-    typeof issue.longitude === 'number' &&
-    Number.isFinite(issue.latitude) &&
-    Number.isFinite(issue.longitude);
+  const hasValidCoords = isValidCoordinate(
+    Number(issue.latitude),
+    Number(issue.longitude)
+  );
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
@@ -320,12 +320,24 @@ export default function AdminIssueReviewScreen() {
                 >
                   <Marker
                     coordinate={{
-                      latitude: issue.latitude,
-                      longitude: issue.longitude,
+                      latitude: Number(issue.latitude),
+                      longitude: Number(issue.longitude),
                     }}
                   />
                 </MapView>
               </View>
+            ) : null}
+
+            {hasValidCoords ? (
+              <TouchableOpacity
+                style={styles.directionsBtn}
+                onPress={() =>
+                  openGoogleMapsDirections(issue.latitude, issue.longitude)
+                }
+              >
+                <Ionicons name="navigate-outline" size={18} color="#ffffff" />
+                <Text style={styles.directionsBtnText}>Get Directions in Google Maps</Text>
+              </TouchableOpacity>
             ) : null}
           </Card>
 
@@ -569,6 +581,22 @@ const styles = StyleSheet.create({
   miniMap: {
     width: '100%',
     height: '100%',
+  },
+  directionsBtn: {
+    marginTop: SPACING.sm,
+    backgroundColor: COLORS.secondary,
+    borderRadius: RADIUS.md,
+    paddingVertical: SPACING.sm + 2,
+    paddingHorizontal: SPACING.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: SPACING.xs,
+  },
+  directionsBtnText: {
+    color: '#ffffff',
+    fontSize: FONT_SIZE.sm,
+    fontWeight: '700',
   },
   sectionHeading: {
     fontSize: FONT_SIZE.md,

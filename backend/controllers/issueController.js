@@ -47,7 +47,7 @@ const getIssues = async (req, res, next) => {
     const pagination = parsePagination(page, limit, 100);
 
     const issues = await Issue.find(query)
-      .populate('reportedBy', 'name email')
+      .populate('reportedBy', 'name')
       .sort(sortOrder)
       .skip(pagination.skip)
       .limit(pagination.limit);
@@ -89,9 +89,12 @@ const getIssueById = async (req, res, next) => {
   try {
     if (!checkDB(res)) return;
 
+    const isAdminUser = req.user?.role === 'admin';
+    const reporterFields = isAdminUser ? 'name email role' : 'name role';
+
     const issue = await Issue.findById(req.params.id)
-      .populate('reportedBy', 'name email role')
-      .populate('statusHistory.updatedBy', 'name email role');
+      .populate('reportedBy', reporterFields)
+      .populate('statusHistory.updatedBy', 'name role');
 
     if (!issue) {
       return res.status(404).json({
@@ -286,7 +289,7 @@ const getNearbyIssues = async (req, res, next) => {
         },
       },
     })
-      .populate('reportedBy', 'name email')
+      .populate('reportedBy', 'name')
       .limit(100);
 
     // Include older complaints saved before GeoJSON coordinates were added
@@ -296,7 +299,7 @@ const getNearbyIssues = async (req, res, next) => {
       latitude: { $type: 'number' },
       longitude: { $type: 'number' },
     })
-      .populate('reportedBy', 'name email')
+      .populate('reportedBy', 'name')
       .limit(100);
 
     const seenIds = new Set(geoIssues.map((i) => i._id.toString()));
@@ -348,8 +351,8 @@ const supportIssue = async (req, res, next) => {
       { $addToSet: { supporters: userId }, $inc: { supportCount: 1 } },
       { new: true }
     )
-      .populate('reportedBy', 'name email role')
-      .populate('statusHistory.updatedBy', 'name email role');
+      .populate('reportedBy', 'name role')
+      .populate('statusHistory.updatedBy', 'name role');
 
     if (!updatedIssue) {
       const existing = await Issue.findById(issueId)
@@ -426,8 +429,8 @@ const removeSupport = async (req, res, next) => {
       { $pull: { supporters: userId }, $inc: { supportCount: -1 } },
       { new: true }
     )
-      .populate('reportedBy', 'name email role')
-      .populate('statusHistory.updatedBy', 'name email role');
+      .populate('reportedBy', 'name role')
+      .populate('statusHistory.updatedBy', 'name role');
 
     if (!updatedIssue) {
       const existing = await Issue.findById(issueId)

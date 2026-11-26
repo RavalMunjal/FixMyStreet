@@ -20,6 +20,7 @@ import SupportButton from '../../../components/SupportButton';
 import StatusTimeline from '../../../components/StatusTimeline';
 import Loading from '../../../components/Loading';
 import { issueService } from '../../../services/api';
+import { isValidCoordinate, openGoogleMapsDirections } from '../../../services/location';
 import { COLORS, SPACING, FONT_SIZE, RADIUS } from '../../../constants/theme';
 
 let MapView, Marker, PROVIDER_GOOGLE;
@@ -121,11 +122,10 @@ export default function IssueDetailsScreen() {
     );
   }
 
-  const hasValidCoords =
-    typeof issue.latitude === 'number' &&
-    typeof issue.longitude === 'number' &&
-    Number.isFinite(issue.latitude) &&
-    Number.isFinite(issue.longitude);
+  const hasValidCoords = isValidCoordinate(
+    Number(issue.latitude),
+    Number(issue.longitude)
+  );
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
@@ -213,8 +213,8 @@ export default function IssueDetailsScreen() {
                     provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
                     style={styles.miniMap}
                     initialRegion={{
-                      latitude: issue.latitude,
-                      longitude: issue.longitude,
+                      latitude: Number(issue.latitude),
+                      longitude: Number(issue.longitude),
                       latitudeDelta: 0.008,
                       longitudeDelta: 0.008,
                     }}
@@ -223,8 +223,8 @@ export default function IssueDetailsScreen() {
                   >
                     <Marker
                       coordinate={{
-                        latitude: issue.latitude,
-                        longitude: issue.longitude,
+                        latitude: Number(issue.latitude),
+                        longitude: Number(issue.longitude),
                       }}
                       title={issue.title}
                       description={issue.address || issue.category}
@@ -232,6 +232,15 @@ export default function IssueDetailsScreen() {
                   </MapView>
                 </View>
               ) : null}
+              <TouchableOpacity
+                style={styles.directionsBtn}
+                onPress={() =>
+                  openGoogleMapsDirections(issue.latitude, issue.longitude)
+                }
+              >
+                <Ionicons name="navigate-outline" size={18} color="#ffffff" />
+                <Text style={styles.directionsBtnText}>Get Directions in Google Maps</Text>
+              </TouchableOpacity>
             </>
           ) : null}
         </Card>
@@ -380,6 +389,22 @@ const styles = StyleSheet.create({
   miniMap: {
     width: '100%',
     height: '100%',
+  },
+  directionsBtn: {
+    marginTop: SPACING.sm,
+    backgroundColor: COLORS.primary,
+    borderRadius: RADIUS.md,
+    paddingVertical: SPACING.sm + 2,
+    paddingHorizontal: SPACING.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: SPACING.xs,
+  },
+  directionsBtnText: {
+    color: '#ffffff',
+    fontSize: FONT_SIZE.sm,
+    fontWeight: '700',
   },
   resolutionCard: {
     borderColor: COLORS.resolvedBorder,

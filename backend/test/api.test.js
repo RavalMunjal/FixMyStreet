@@ -417,6 +417,34 @@ async function runTests() {
       });
       const citizen2Token = reg2Res.body?.data?.token;
 
+      // Public Map Pins & Privacy Check: Citizen 2 sees Citizen 1's report with coords, updated status, & NO reporter email
+      if (citizen2Token && issueA?._id) {
+        const c2PublicNear = await request(
+          'GET',
+          `/api/issues/nearby?latitude=${issueA.latitude}&longitude=${issueA.longitude}&radiusKm=5`,
+          null,
+          { Authorization: `Bearer ${citizen2Token}` }
+        );
+        const c2MappedIssue = (c2PublicNear.body?.data?.issues || []).find(
+          (i) => i._id === issueA._id
+        );
+        const c2Detail = await request('GET', `/api/issues/${issueA._id}`, null, {
+          Authorization: `Bearer ${citizen2Token}`,
+        });
+        assert(
+          'Public Nearby Map shows another citizen issue, updated status & hides reporter email',
+          c2PublicNear.status === 200 &&
+            !!c2MappedIssue &&
+            typeof c2MappedIssue.latitude === 'number' &&
+            typeof c2MappedIssue.longitude === 'number' &&
+            c2MappedIssue.status === 'In Progress' &&
+            c2MappedIssue.reportedBy?.name === 'E2E Test Citizen' &&
+            !c2MappedIssue.reportedBy?.email &&
+            c2Detail.status === 200 &&
+            !c2Detail.body?.data?.issue?.reportedBy?.email
+        );
+      }
+
       const waterAdminHash = await User.hashPassword('Admin@123456');
       const waterAdmin = await User.create({
         name: 'Water Dept Admin',
