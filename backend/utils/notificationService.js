@@ -6,16 +6,13 @@ const EXPO_PUSH_ENDPOINT = 'https://exp.host/--/api/v2/push/send';
 const isValidExpoPushToken = (token) => {
   if (!token || typeof token !== 'string') return false;
   const trimmed = token.trim();
-  return (
+  const hasPrefix =
     trimmed.startsWith('ExponentPushToken[') ||
-    trimmed.startsWith('ExpoPushToken[')
-  ) && trimmed.endsWith(']');
+    trimmed.startsWith('ExpoPushToken[');
+  return hasPrefix && trimmed.endsWith(']');
 };
 
-/**
- * Send push notifications via Expo Push API and remove dead/unregistered tokens.
- * Failures are caught and logged so main API operations never fail.
- */
+// Send push notifications via Expo Push API and remove unregistered device tokens
 const sendExpoPushNotifications = async (tokens = [], payload = {}) => {
   try {
     const validTokens = [...new Set(tokens.filter(isValidExpoPushToken))];
@@ -32,9 +29,8 @@ const sendExpoPushNotifications = async (tokens = [], payload = {}) => {
     }));
 
     const badTokens = [];
-    // Send in batches of 100 per Expo Push API spec
     for (let i = 0; i < messages.length; i += 100) {
-      const chunk = messages.slice(i, i + 100);
+      const batch = messages.slice(i, i + 100);
       const response = await fetch(EXPO_PUSH_ENDPOINT, {
         method: 'POST',
         headers: {
@@ -42,23 +38,17 @@ const sendExpoPushNotifications = async (tokens = [], payload = {}) => {
           'Accept-encoding': 'gzip, deflate',
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(chunk),
+        body: JSON.stringify(batch),
       });
 
-      if (!response.ok) {
-        console.warn(`Expo Push API returned HTTP ${response.status}`);
-        continue;
-      }
+      if (!response.ok) continue;
 
       const result = await response.json();
       const tickets = Array.isArray(result?.data) ? result.data : [];
 
       tickets.forEach((ticket, idx) => {
-        if (
-          ticket?.status === 'error' &&
-          ticket?.details?.error === 'DeviceNotRegistered'
-        ) {
-          badTokens.push(chunk[idx].to);
+        if (ticket?.details?.error === 'DeviceNotRegistered') {
+          badTokens.push(batch[idx].to);
         }
       });
     }
@@ -68,20 +58,16 @@ const sendExpoPushNotifications = async (tokens = [], payload = {}) => {
         { pushTokens: { $in: badTokens } },
         { $pull: { pushTokens: { $in: badTokens } } }
       );
-      console.log(`🧹 Cleaned ${badTokens.length} unregistered Expo push token(s)`);
     }
 
     return { sent: validTokens.length - badTokens.length };
   } catch (err) {
-    console.warn('Expo push delivery failed safely:', err.message);
-    return { sent: 0, error: err.message };
+    console.warn('Expo push delivery skipped:', err.message);
+    return { sent: 0 };
   }
 };
 
-/**
- * Persist an in-app Notification in MongoDB and dispatch Expo push notification.
- * Never throws so complaint/status mutations always succeed.
- */
+// Save in-app notification to MongoDB and send push message without breaking caller flows
 const createAndSendNotification = async ({
   recipientId,
   senderId = null,
@@ -101,9 +87,7 @@ const createAndSendNotification = async ({
         recipient: recipientId,
         dedupeKey,
       });
-      if (existing) {
-        return existing;
-      }
+      if (existing) return existing;
     }
 
     const doc = await Notification.create({
@@ -118,8 +102,7 @@ const createAndSendNotification = async ({
     });
 
     const recipient = await User.findById(recipientId).select('pushTokens');
-    if (recipient && Array.isArray(recipient.pushTokens) && recipient.pushTokens.length > 0) {
-      // Dispatch push without blocking caller or throwing
+    if (recipient?.pushTokens?.length > 0) {
       sendExpoPushNotifications(recipient.pushTokens, {
         title,
         message,
@@ -130,23 +113,55 @@ const createAndSendNotification = async ({
           type,
           targetRole,
         },
-      }).catch((e) => console.warn('Push dispatch error:', e.message));
+      });
     }
 
     return doc;
   } catch (error) {
-    // Handle race-condition duplicate key gracefully
-    if (error?.code === 11000) {
-      return null;
+    if (error?.code !== 11000) {
+      console.warn('Notification creation failed:', error.message);
     }
-    console.warn('Notification creation failed safely:', error.message);
     return null;
   }
 };
 
-/**
- * Determine responsible admins for a newly submitted issue without notifying unrelated admins.
- */
+// Notify citizen when an admin updates complaint status or marks it resolved
+const notifyIssueStatusChange = async ({
+  issue,
+  reporterId,
+  adminId,
+  status,
+  previousStatus,
+}) => {
+  if (status === 'Resolved') {
+    await createAndSendNotification({
+      recipientId: reporterId,
+      senderId: adminId,
+      issueId: issue._id,
+      type: 'ISSUE_RESOLVED',
+      title: 'Your Issue Has Been Resolved',
+      message: issue.resolutionImageUrl
+        ? `Your reported issue ${issue.title} has been marked as resolved. Open details to review the resolution proof.`
+        : `Your reported issue ${issue.title} has been marked as resolved.`,
+      targetRole: 'citizen',
+    });
+    return;
+  }
+
+  if (previousStatus !== status) {
+    await createAndSendNotification({
+      recipientId: reporterId,
+      senderId: adminId,
+      issueId: issue._id,
+      type: 'STATUS_UPDATED',
+      title: 'Issue Status Updated',
+      message: `Your complaint ${issue.title} has been updated to ${status}.`,
+      targetRole: 'citizen',
+    });
+  }
+};
+
+// Find admins responsible for this issue's organization, category, or area
 const findResponsibleAdminsForIssue = async (issue) => {
   try {
     const admins = await User.find({ role: 'admin' }).select(
@@ -163,32 +178,14 @@ const findResponsibleAdminsForIssue = async (issue) => {
         : [];
       const adminArea = (admin.assignedArea || '').trim().toLowerCase();
 
-      // If issue specifies a responsible organization, skip admins bound to a different org
-      if (issueOrg && adminOrg && adminOrg !== issueOrg) {
-        return false;
-      }
-      // If admin belongs to a specific organization when issue doesn't match, skip
-      if (adminOrg && issueOrg && adminOrg !== issueOrg) {
-        return false;
-      }
-      if (adminOrg && !issueOrg) {
-        return false;
-      }
-
-      // If admin has specific category responsibilities, require match
-      if (adminCats.length > 0 && !adminCats.includes(issue.category)) {
-        return false;
-      }
-
-      // If admin is scoped to a specific area, require address match
-      if (adminArea && !issueAddr.includes(adminArea)) {
-        return false;
-      }
+      if (adminOrg && adminOrg !== issueOrg) return false;
+      if (adminCats.length > 0 && !adminCats.includes(issue.category)) return false;
+      if (adminArea && !issueAddr.includes(adminArea)) return false;
 
       return true;
     });
   } catch (err) {
-    console.warn('Failed to resolve responsible admins:', err.message);
+    console.warn('Failed to find responsible admins:', err.message);
     return [];
   }
 };
@@ -197,5 +194,6 @@ module.exports = {
   isValidExpoPushToken,
   sendExpoPushNotifications,
   createAndSendNotification,
+  notifyIssueStatusChange,
   findResponsibleAdminsForIssue,
 };

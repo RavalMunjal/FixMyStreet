@@ -1,80 +1,24 @@
 const Issue = require('../models/Issue');
 const { URGENCY_LEVELS } = require('../models/Issue');
-const { checkDB, escapeRegex, parsePagination } = require('../utils/helpers');
+const {
+  checkDB,
+  escapeRegex,
+  parsePagination,
+  parseValidCoordinates,
+  calculateDistanceKm,
+  buildStatusFilter,
+} = require('../utils/helpers');
 const {
   createAndSendNotification,
   findResponsibleAdminsForIssue,
 } = require('../utils/notificationService');
 
-const parseValidCoordinates = (latitude, longitude) => {
-  if (
-    latitude === undefined ||
-    latitude === null ||
-    latitude === '' ||
-    longitude === undefined ||
-    longitude === null ||
-    longitude === ''
-  ) {
-    return null;
-  }
-
-  const lat = Number(latitude);
-  const lng = Number(longitude);
-
-  if (
-    !Number.isFinite(lat) ||
-    !Number.isFinite(lng) ||
-    lat < -90 ||
-    lat > 90 ||
-    lng < -180 ||
-    lng > 180
-  ) {
-    return null;
-  }
-
-  return { lat, lng };
-};
-
-// Haversine formula to compute accurate distance in kilometers
-const calculateDistanceKm = (lat1, lon1, lat2, lon2) => {
-  const toRad = (deg) => (deg * Math.PI) / 180;
-  const R = 6371; // Earth radius in km
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(toRad(lat1)) *
-      Math.cos(toRad(lat2)) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return Number((R * c).toFixed(2));
-};
-
-const buildStatusFilter = (status) => {
-  if (!status || status === 'All') return null;
-  if (status === 'Reported') {
-    return { $in: ['Reported', 'Pending'] };
-  }
-  return status;
-};
-
-// @desc    Get all issues with optional filtering, search, sorting & real MongoDB counts
-// @route   GET /api/issues
-// @access  Public
+// Get all issues with optional search, category, status filter, and sort order
 const getIssues = async (req, res, next) => {
   try {
     if (!checkDB(res)) return;
 
-    const {
-      category,
-      status,
-      search,
-      sort = 'newest',
-      limit = 50,
-      page = 1,
-    } = req.query;
-
+    const { category, status, search, sort = 'newest', limit = 50, page = 1 } = req.query;
     const query = {};
 
     if (category && category !== 'All') {
@@ -102,27 +46,20 @@ const getIssues = async (req, res, next) => {
 
     const pagination = parsePagination(page, limit, 100);
 
-    const [
-      issues,
-      total,
-      totalAll,
-      reportedCount,
-      underReviewCount,
-      inProgressCount,
-      resolvedCount,
-    ] = await Promise.all([
-      Issue.find(query)
-        .populate('reportedBy', 'name email')
-        .sort(sortOrder)
-        .skip(pagination.skip)
-        .limit(pagination.limit),
-      Issue.countDocuments(query),
-      Issue.countDocuments(),
-      Issue.countDocuments({ status: { $in: ['Reported', 'Pending'] } }),
-      Issue.countDocuments({ status: 'Under Review' }),
-      Issue.countDocuments({ status: 'In Progress' }),
-      Issue.countDocuments({ status: 'Resolved' }),
-    ]);
+    const issues = await Issue.find(query)
+      .populate('reportedBy', 'name email')
+      .sort(sortOrder)
+      .skip(pagination.skip)
+      .limit(pagination.limit);
+
+    const total = await Issue.countDocuments(query);
+    const totalAll = await Issue.countDocuments();
+    const reportedCount = await Issue.countDocuments({
+      status: { $in: ['Reported', 'Pending'] },
+    });
+    const underReviewCount = await Issue.countDocuments({ status: 'Under Review' });
+    const inProgressCount = await Issue.countDocuments({ status: 'In Progress' });
+    const resolvedCount = await Issue.countDocuments({ status: 'Resolved' });
 
     res.status(200).json({
       success: true,
@@ -147,9 +84,7 @@ const getIssues = async (req, res, next) => {
   }
 };
 
-// @desc    Get single issue by ID
-// @route   GET /api/issues/:id
-// @access  Public
+// Get one issue by its ID with reporter and timeline details
 const getIssueById = async (req, res, next) => {
   try {
     if (!checkDB(res)) return;
@@ -168,18 +103,14 @@ const getIssueById = async (req, res, next) => {
     res.status(200).json({
       success: true,
       message: 'Issue details retrieved',
-      data: {
-        issue,
-      },
+      data: { issue },
     });
   } catch (error) {
     next(error);
   }
 };
 
-// @desc    Report a new civic issue
-// @route   POST /api/issues
-// @access  Private (Citizen)
+// Create a new civic complaint and send submission notifications
 const createIssue = async (req, res, next) => {
   try {
     if (!checkDB(res)) return;
@@ -198,10 +129,8 @@ const createIssue = async (req, res, next) => {
     } = req.body;
 
     if (
-      !title ||
-      !title.trim() ||
-      !description ||
-      !description.trim() ||
+      !title?.trim() ||
+      !description?.trim() ||
       !category ||
       !imageUrl ||
       !String(imageUrl).trim()
@@ -241,11 +170,10 @@ const createIssue = async (req, res, next) => {
         type: 'Point',
         coordinates: [coords.lng, coords.lat],
       },
-      address:
-        address && address.trim() ? address.trim() : 'Location captured via GPS',
+      address: address?.trim() ? address.trim() : 'Location captured via GPS',
       status: 'Reported',
       requestedUrgency,
-      confirmedUrgency: 'Normal', // Admin independently confirms urgency later
+      confirmedUrgency: 'Normal',
       supporters: [],
       supportCount: 0,
       reportedBy: req.user._id,
@@ -269,7 +197,7 @@ const createIssue = async (req, res, next) => {
       'name email'
     );
 
-    // Event A: Create notifications ONLY after issue is persisted in MongoDB
+    // Notify citizen and responsible admins only after MongoDB save succeeds
     await createAndSendNotification({
       recipientId: req.user._id,
       senderId: req.user._id,
@@ -282,37 +210,30 @@ const createIssue = async (req, res, next) => {
     });
 
     const responsibleAdmins = await findResponsibleAdminsForIssue(issue);
-    await Promise.all(
-      responsibleAdmins.map((adminUser) =>
-        createAndSendNotification({
-          recipientId: adminUser._id,
-          senderId: req.user._id,
-          issueId: issue._id,
-          type: 'NEW_ISSUE_ADMIN',
-          title: 'New Issue Reported',
-          message: `A new ${issue.category} issue has been reported in your assigned area.`,
-          dedupeKey: `new_issue_admin:${issue._id}:${adminUser._id}`,
-          targetRole: 'admin',
-        })
-      )
-    );
+    for (const adminUser of responsibleAdmins) {
+      await createAndSendNotification({
+        recipientId: adminUser._id,
+        senderId: req.user._id,
+        issueId: issue._id,
+        type: 'NEW_ISSUE_ADMIN',
+        title: 'New Issue Reported',
+        message: `A new ${issue.category} issue has been reported in your assigned area.`,
+        dedupeKey: `new_issue_admin:${issue._id}:${adminUser._id}`,
+        targetRole: 'admin',
+      });
+    }
 
     res.status(201).json({
       success: true,
-      message:
-        'Complaint submitted successfully! An administrator will review it.',
-      data: {
-        issue: populatedIssue,
-      },
+      message: 'Complaint submitted successfully! An administrator will review it.',
+      data: { issue: populatedIssue },
     });
   } catch (error) {
     next(error);
   }
 };
 
-// @desc    Get complaints submitted by the logged-in citizen
-// @route   GET /api/issues/my
-// @access  Private (Citizen)
+// Get complaints reported by the currently logged-in citizen
 const getMyIssues = async (req, res, next) => {
   try {
     if (!checkDB(res)) return;
@@ -334,9 +255,7 @@ const getMyIssues = async (req, res, next) => {
   }
 };
 
-// @desc    Get nearby issues using MongoDB GeoJSON 2dsphere query + accurate km distance
-// @route   GET /api/issues/nearby
-// @access  Public
+// Get issues within radiusKm (1, 3, 5 km) sorted nearest-first
 const getNearbyIssues = async (req, res, next) => {
   try {
     if (!checkDB(res)) return;
@@ -347,26 +266,19 @@ const getNearbyIssues = async (req, res, next) => {
     if (!coords) {
       return res.status(400).json({
         success: false,
-        message:
-          'Valid latitude and longitude coordinates are required for nearby query',
+        message: 'Valid latitude and longitude coordinates are required for nearby query',
       });
     }
 
     const parsedRadius = Math.min(100, Math.max(0.1, Number(radiusKm) || 5));
-    const maxDistanceMeters = parsedRadius * 1000;
+    const earthRadiusKm = 6378.1;
 
     const baseFilter = {};
-    if (category && category !== 'All') {
-      baseFilter.category = category;
-    }
+    if (category && category !== 'All') baseFilter.category = category;
     const statusCond = buildStatusFilter(status);
-    if (statusCond) {
-      baseFilter.status = statusCond;
-    }
+    if (statusCond) baseFilter.status = statusCond;
 
-    // Use MongoDB GeoJSON $geoWithin + $centerSphere on 2dsphere index
-    const earthRadiusKm = 6378.1;
-    let issues = await Issue.find({
+    const geoIssues = await Issue.find({
       ...baseFilter,
       location: {
         $geoWithin: {
@@ -377,7 +289,7 @@ const getNearbyIssues = async (req, res, next) => {
       .populate('reportedBy', 'name email')
       .limit(100);
 
-    // Fallback for any legacy records missing GeoJSON `location.coordinates`
+    // Include older complaints saved before GeoJSON coordinates were added
     const legacyIssues = await Issue.find({
       ...baseFilter,
       'location.coordinates.0': { $exists: false },
@@ -387,26 +299,26 @@ const getNearbyIssues = async (req, res, next) => {
       .populate('reportedBy', 'name email')
       .limit(100);
 
-    const seenIds = new Set(issues.map((i) => i._id.toString()));
+    const seenIds = new Set(geoIssues.map((i) => i._id.toString()));
+    const combined = [...geoIssues];
     for (const legacy of legacyIssues) {
       if (!seenIds.has(legacy._id.toString())) {
-        issues.push(legacy);
+        combined.push(legacy);
       }
     }
 
-    // Attach accurate distanceKm & strictly enforce radius filter + nearest-first order
-    const issuesWithDistance = issues
+    const nearbyIssues = combined
       .map((doc) => {
         const obj = doc.toObject();
-        const dist = calculateDistanceKm(
+        const distanceKm = calculateDistanceKm(
           coords.lat,
           coords.lng,
           obj.latitude,
           obj.longitude
         );
-        return { ...obj, distanceKm: dist };
+        return { ...obj, distanceKm };
       })
-      .filter((item) => item.distanceKm * 1000 <= maxDistanceMeters + 50)
+      .filter((item) => item.distanceKm <= parsedRadius + 0.05)
       .sort((a, b) => a.distanceKm - b.distanceKm);
 
     res.status(200).json({
@@ -414,8 +326,8 @@ const getNearbyIssues = async (req, res, next) => {
       message: 'Nearby issues retrieved',
       data: {
         radiusKm: parsedRadius,
-        count: issuesWithDistance.length,
-        issues: issuesWithDistance,
+        count: nearbyIssues.length,
+        issues: nearbyIssues,
       },
     });
   } catch (error) {
@@ -423,9 +335,7 @@ const getNearbyIssues = async (req, res, next) => {
   }
 };
 
-// @desc    Support / Upvote a complaint ("I Face This Too") — 1 per user
-// @route   POST /api/issues/:id/support
-// @access  Private
+// Support a complaint ("I Face This Too"), max once per user
 const supportIssue = async (req, res, next) => {
   try {
     if (!checkDB(res)) return;
@@ -433,8 +343,7 @@ const supportIssue = async (req, res, next) => {
     const userId = req.user._id;
     const issueId = req.params.id;
 
-    // Atomic conditional update guarantees duplicate rapid requests cannot double-increment
-    let updatedIssue = await Issue.findOneAndUpdate(
+    const updatedIssue = await Issue.findOneAndUpdate(
       { _id: issueId, supporters: { $ne: userId } },
       { $addToSet: { supporters: userId }, $inc: { supportCount: 1 } },
       { new: true }
@@ -454,12 +363,6 @@ const supportIssue = async (req, res, next) => {
         });
       }
 
-      // Sync exact count cleanly
-      if (existing.supportCount !== existing.supporters.length) {
-        existing.supportCount = existing.supporters.length;
-        await existing.save();
-      }
-
       return res.status(200).json({
         success: true,
         alreadySupported: true,
@@ -472,16 +375,15 @@ const supportIssue = async (req, res, next) => {
       });
     }
 
-    // Ensure count matches supporters length exactly
     if (updatedIssue.supportCount !== updatedIssue.supporters.length) {
       updatedIssue.supportCount = updatedIssue.supporters.length;
       await updatedIssue.save();
     }
 
-    // Event D: Notify original reporter when another citizen supports (deduped)
     const reporterId =
       updatedIssue.reportedBy?._id?.toString() ||
       updatedIssue.reportedBy?.toString();
+
     if (reporterId && reporterId !== userId.toString()) {
       await createAndSendNotification({
         recipientId: reporterId,
@@ -511,9 +413,7 @@ const supportIssue = async (req, res, next) => {
   }
 };
 
-// @desc    Remove support from a complaint
-// @route   DELETE /api/issues/:id/support
-// @access  Private
+// Remove support from a complaint
 const removeSupport = async (req, res, next) => {
   try {
     if (!checkDB(res)) return;

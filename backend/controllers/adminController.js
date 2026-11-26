@@ -1,38 +1,33 @@
 const User = require('../models/User');
 const Issue = require('../models/Issue');
 const { ISSUE_STATUSES, URGENCY_LEVELS } = require('../models/Issue');
-const { checkDB, escapeRegex, parsePagination } = require('../utils/helpers');
-const { createAndSendNotification } = require('../utils/notificationService');
+const {
+  checkDB,
+  escapeRegex,
+  parsePagination,
+  buildStatusFilter,
+} = require('../utils/helpers');
+const { notifyIssueStatusChange } = require('../utils/notificationService');
 
-// @desc    Get admin dashboard metrics & counts
-// @route   GET /api/admin/dashboard
-// @access  Private (Admin)
+// Get admin dashboard summary counts and latest submissions
 const getDashboardStats = async (req, res, next) => {
   try {
     if (!checkDB(res)) return;
 
-    const [
-      total,
-      reported,
-      underReview,
-      inProgress,
-      resolved,
-      highUrgency,
-      totalUsers,
-      recentIssues,
-    ] = await Promise.all([
-      Issue.countDocuments(),
-      Issue.countDocuments({ status: { $in: ['Reported', 'Pending'] } }),
-      Issue.countDocuments({ status: 'Under Review' }),
-      Issue.countDocuments({ status: 'In Progress' }),
-      Issue.countDocuments({ status: 'Resolved' }),
-      Issue.countDocuments({ confirmedUrgency: 'High' }),
-      User.countDocuments({ role: 'citizen' }),
-      Issue.find()
-        .populate('reportedBy', 'name email')
-        .sort({ createdAt: -1 })
-        .limit(6),
-    ]);
+    const total = await Issue.countDocuments();
+    const reported = await Issue.countDocuments({
+      status: { $in: ['Reported', 'Pending'] },
+    });
+    const underReview = await Issue.countDocuments({ status: 'Under Review' });
+    const inProgress = await Issue.countDocuments({ status: 'In Progress' });
+    const resolved = await Issue.countDocuments({ status: 'Resolved' });
+    const highUrgency = await Issue.countDocuments({ confirmedUrgency: 'High' });
+    const totalUsers = await User.countDocuments({ role: 'citizen' });
+
+    const recentIssues = await Issue.find()
+      .populate('reportedBy', 'name email')
+      .sort({ createdAt: -1 })
+      .limit(6);
 
     res.status(200).json({
       success: true,
@@ -56,9 +51,7 @@ const getDashboardStats = async (req, res, next) => {
   }
 };
 
-// @desc    Get all issues for admin review (supports urgency/status/category filters & sorting)
-// @route   GET /api/admin/issues
-// @access  Private (Admin)
+// Get all issues for admin filtering, sorting, and review
 const getAllAdminIssues = async (req, res, next) => {
   try {
     if (!checkDB(res)) return;
@@ -76,22 +69,12 @@ const getAllAdminIssues = async (req, res, next) => {
 
     const query = {};
 
-    if (category && category !== 'All') {
-      query.category = category;
-    }
-
-    if (status && status !== 'All') {
-      if (status === 'Reported') {
-        query.status = { $in: ['Reported', 'Pending'] };
-      } else {
-        query.status = status;
-      }
-    }
-
+    if (category && category !== 'All') query.category = category;
+    const statusCond = buildStatusFilter(status);
+    if (statusCond) query.status = statusCond;
     if (confirmedUrgency && confirmedUrgency !== 'All') {
       query.confirmedUrgency = confirmedUrgency;
     }
-
     if (requestedUrgency && requestedUrgency !== 'All') {
       query.requestedUrgency = requestedUrgency;
     }
@@ -109,7 +92,6 @@ const getAllAdminIssues = async (req, res, next) => {
     if (sort === 'most_supported') {
       sortOrder = { supportCount: -1, createdAt: -1 };
     } else if (sort === 'urgency') {
-      // 'High' comes before 'Normal' alphabetically
       sortOrder = { confirmedUrgency: 1, supportCount: -1, createdAt: -1 };
     }
 
@@ -139,9 +121,7 @@ const getAllAdminIssues = async (req, res, next) => {
   }
 };
 
-// @desc    Update complaint status, optional confirmedUrgency, & add admin note
-// @route   PATCH /api/admin/issues/:id/status
-// @access  Private (Admin)
+// Update complaint status, note, and optional urgency level
 const updateIssueStatus = async (req, res, next) => {
   try {
     if (!checkDB(res)) return;
@@ -173,14 +153,8 @@ const updateIssueStatus = async (req, res, next) => {
 
     const previousStatus = issue.status;
     issue.status = status;
-
-    if (adminNote !== undefined) {
-      issue.adminNote = String(adminNote).trim();
-    }
-
-    if (confirmedUrgency !== undefined) {
-      issue.confirmedUrgency = confirmedUrgency;
-    }
+    if (adminNote !== undefined) issue.adminNote = String(adminNote).trim();
+    if (confirmedUrgency !== undefined) issue.confirmedUrgency = confirmedUrgency;
 
     issue.statusHistory.push({
       status,
@@ -198,47 +172,25 @@ const updateIssueStatus = async (req, res, next) => {
       .populate('reportedBy', 'name email role')
       .populate('statusHistory.updatedBy', 'name email role');
 
-    // Event B & Event C: Notify citizen after status change persists in MongoDB
-    const reporterId = populated?.reportedBy?._id || issue.reportedBy;
-    if (status === 'Resolved') {
-      await createAndSendNotification({
-        recipientId: reporterId,
-        senderId: req.user._id,
-        issueId: issue._id,
-        type: 'ISSUE_RESOLVED',
-        title: 'Your Issue Has Been Resolved',
-        message: issue.resolutionImageUrl
-          ? `Your reported issue ${issue.title} has been marked as resolved. Open details to review the resolution proof.`
-          : `Your reported issue ${issue.title} has been marked as resolved.`,
-        targetRole: 'citizen',
-      });
-    } else if (previousStatus !== status) {
-      await createAndSendNotification({
-        recipientId: reporterId,
-        senderId: req.user._id,
-        issueId: issue._id,
-        type: 'STATUS_UPDATED',
-        title: 'Issue Status Updated',
-        message: `Your complaint ${issue.title} has been updated to ${status}.`,
-        targetRole: 'citizen',
-      });
-    }
+    await notifyIssueStatusChange({
+      issue,
+      reporterId: populated?.reportedBy?._id || issue.reportedBy,
+      adminId: req.user._id,
+      status,
+      previousStatus,
+    });
 
     res.status(200).json({
       success: true,
       message: `Complaint status updated to ${status}`,
-      data: {
-        issue: populated,
-      },
+      data: { issue: populated },
     });
   } catch (error) {
     next(error);
   }
 };
 
-// @desc    Confirm or update issue urgency independently
-// @route   PATCH /api/admin/issues/:id/urgency
-// @access  Private (Admin)
+// Confirm or change issue urgency level independently
 const updateIssueUrgency = async (req, res, next) => {
   try {
     if (!checkDB(res)) return;
@@ -269,18 +221,14 @@ const updateIssueUrgency = async (req, res, next) => {
     res.status(200).json({
       success: true,
       message: `Confirmed urgency set to ${confirmedUrgency}`,
-      data: {
-        issue: populated,
-      },
+      data: { issue: populated },
     });
   } catch (error) {
     next(error);
   }
 };
 
-// @desc    Resolve complaint with resolution note & optional proof photo
-// @route   POST /api/admin/issues/:id/resolve
-// @access  Private (Admin)
+// Mark complaint resolved with optional note and proof photo
 const resolveIssue = async (req, res, next) => {
   try {
     if (!checkDB(res)) return;
@@ -302,16 +250,13 @@ const resolveIssue = async (req, res, next) => {
       });
     }
 
+    const previousStatus = issue.status;
     issue.status = 'Resolved';
-    if (adminNote !== undefined) {
-      issue.adminNote = String(adminNote).trim();
-    }
+    if (adminNote !== undefined) issue.adminNote = String(adminNote).trim();
     if (resolutionImageUrl !== undefined) {
       issue.resolutionImageUrl = String(resolutionImageUrl).trim();
     }
-    if (confirmedUrgency !== undefined) {
-      issue.confirmedUrgency = confirmedUrgency;
-    }
+    if (confirmedUrgency !== undefined) issue.confirmedUrgency = confirmedUrgency;
 
     issue.statusHistory.push({
       status: 'Resolved',
@@ -329,35 +274,25 @@ const resolveIssue = async (req, res, next) => {
       .populate('reportedBy', 'name email role')
       .populate('statusHistory.updatedBy', 'name email role');
 
-    // Event C: Complaint resolved notification
-    const reporterId = populated?.reportedBy?._id || issue.reportedBy;
-    await createAndSendNotification({
-      recipientId: reporterId,
-      senderId: req.user._id,
-      issueId: issue._id,
-      type: 'ISSUE_RESOLVED',
-      title: 'Your Issue Has Been Resolved',
-      message: issue.resolutionImageUrl
-        ? `Your reported issue ${issue.title} has been marked as resolved. Open details to review the resolution proof.`
-        : `Your reported issue ${issue.title} has been marked as resolved.`,
-      targetRole: 'citizen',
+    await notifyIssueStatusChange({
+      issue,
+      reporterId: populated?.reportedBy?._id || issue.reportedBy,
+      adminId: req.user._id,
+      status: 'Resolved',
+      previousStatus,
     });
 
     res.status(200).json({
       success: true,
       message: 'Complaint resolved successfully',
-      data: {
-        issue: populated,
-      },
+      data: { issue: populated },
     });
   } catch (error) {
     next(error);
   }
 };
 
-// @desc    Get list of registered users
-// @route   GET /api/admin/users
-// @access  Private (Admin)
+// Get list of registered citizen accounts with complaint counts
 const getUsers = async (req, res, next) => {
   try {
     if (!checkDB(res)) return;
@@ -366,19 +301,18 @@ const getUsers = async (req, res, next) => {
       .select('-passwordHash')
       .sort({ createdAt: -1 });
 
-    const usersWithCounts = await Promise.all(
-      users.map(async (u) => {
-        const count = await Issue.countDocuments({ reportedBy: u._id });
-        return {
-          _id: u._id,
-          name: u.name,
-          email: u.email,
-          role: u.role,
-          createdAt: u.createdAt,
-          complaintsCount: count,
-        };
-      })
-    );
+    const usersWithCounts = [];
+    for (const u of users) {
+      const count = await Issue.countDocuments({ reportedBy: u._id });
+      usersWithCounts.push({
+        _id: u._id,
+        name: u.name,
+        email: u.email,
+        role: u.role,
+        createdAt: u.createdAt,
+        complaintsCount: count,
+      });
+    }
 
     res.status(200).json({
       success: true,
