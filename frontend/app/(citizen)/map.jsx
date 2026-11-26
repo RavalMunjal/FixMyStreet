@@ -1,11 +1,10 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
-  Alert,
   Image,
   FlatList,
   Platform,
@@ -27,100 +26,139 @@ import { APP_CONFIG } from '../../constants/config';
 import { DISTANCE_FILTERS_KM, normalizeStatusLabel } from '../../constants/categories';
 import { COLORS, SPACING, FONT_SIZE, RADIUS, SHADOW } from '../../constants/theme';
 
-let MapView, Marker, Circle, PROVIDER_GOOGLE;
-try {
-  const Maps = require('react-native-maps');
-  MapView = Maps.default;
-  Marker = Maps.Marker;
-  Circle = Maps.Circle;
-  PROVIDER_GOOGLE = Maps.PROVIDER_GOOGLE;
-} catch (e) {
-  console.warn('react-native-maps not available in this environment');
+let MapView = null;
+let Marker = null;
+let Circle = null;
+
+if (Platform.OS !== 'web') {
+  try {
+    const Maps = require('react-native-maps');
+    MapView = Maps.default || Maps;
+    Marker = Maps.Marker;
+    Circle = Maps.Circle;
+  } catch (e) {
+    console.warn('react-native-maps failed to load:', e.message);
+  }
 }
 
-const hasValidCoords = (item) =>
-  typeof item?.latitude === 'number' &&
-  typeof item?.longitude === 'number' &&
-  Number.isFinite(item.latitude) &&
-  Number.isFinite(item.longitude) &&
-  item.latitude >= -90 &&
-  item.latitude <= 90 &&
-  item.longitude >= -180 &&
-  item.longitude <= 180;
+const DEFAULT_REGION = {
+  latitude: Number(APP_CONFIG.defaultLocation.latitude) || 23.0225,
+  longitude: Number(APP_CONFIG.defaultLocation.longitude) || 72.5714,
+  latitudeDelta: 0.05,
+  longitudeDelta: 0.05,
+};
+
+const parseValidCoord = (item) => {
+  const lat = Number(item?.latitude);
+  const lng = Number(item?.longitude);
+  if (
+    item?.latitude === null ||
+    item?.latitude === undefined ||
+    item?.latitude === '' ||
+    item?.longitude === null ||
+    item?.longitude === undefined ||
+    item?.longitude === '' ||
+    !Number.isFinite(lat) ||
+    !Number.isFinite(lng) ||
+    lat < -90 ||
+    lat > 90 ||
+    lng < -180 ||
+    lng > 180
+  ) {
+    return null;
+  }
+  return { latitude: lat, longitude: lng };
+};
 
 export default function NearbyMapScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const mapRef = useRef(null);
+  const mapReadyRef = useRef(false);
 
   const [issues, setIssues] = useState([]);
   const [radiusKm, setRadiusKm] = useState(3);
   const [viewMode, setViewMode] = useState('map'); // 'map' | 'list'
-  const [searchCenter, setSearchCenter] = useState(null); // { latitude, longitude, isManual }
-  const [mapReady, setMapReady] = useState(false);
+  const [searchCenter, setSearchCenter] = useState(null); // { latitude, longitude }
+  const [isManualCenter, setIsManualCenter] = useState(false);
 
-  const [loading, setLoading] = useState(true);
+  const [loadingIssues, setLoadingIssues] = useState(false);
+  const [locating, setLocating] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedIssue, setSelectedIssue] = useState(null);
   const [hasLocationPermission, setHasLocationPermission] = useState(false);
   const [locationNotice, setLocationNotice] = useState('');
-  const [mapError, setMapError] = useState('');
+  const [apiError, setApiError] = useState('');
   const [manualModalVisible, setManualModalVisible] = useState(false);
 
-  const animateCameraTo = (coords, radKm) => {
-    if (!mapRef.current || !coords) return;
-    const delta = Math.max(0.015, (radKm / 111) * 2.4);
-    mapRef.current.animateToRegion(
-      {
-        latitude: coords.latitude,
-        longitude: coords.longitude,
-        latitudeDelta: delta,
-        longitudeDelta: delta,
-      },
-      450
-    );
-  };
-
-  const fetchNearbyAt = useCallback(async (coords, radKm) => {
+  const safeAnimateToRegion = useCallback((coords, radKm) => {
+    if (!mapReadyRef.current || !mapRef.current || !coords) return;
     try {
-      setMapError('');
-      const res = await issueService.getNearby(
-        coords.latitude,
-        coords.longitude,
-        radKm
+      const delta = Math.max(0.015, (radKm / 111) * 2.4);
+      mapRef.current.animateToRegion(
+        {
+          latitude: Number(coords.latitude),
+          longitude: Number(coords.longitude),
+          latitudeDelta: delta,
+          longitudeDelta: delta,
+        },
+        450
       );
+    } catch (e) {
+      console.warn('Map animateToRegion skipped:', e.message);
+    }
+  }, []);
+
+  // Fetch issues independently so map stays visible even if API fails or returns 0 items
+  const fetchIssuesForMap = useCallback(async (coords, radKm) => {
+    try {
+      setLoadingIssues(true);
+      setApiError('');
+
+      const res = coords
+        ? await issueService.getNearby(coords.latitude, coords.longitude, radKm)
+        : await issueService.getAll({ limit: 100 });
+
       const items = res?.data?.issues || [];
       const seen = new Set();
       const valid = [];
+
       for (const item of items) {
-        if (item?._id && !seen.has(item._id) && hasValidCoords(item)) {
+        const parsed = parseValidCoord(item);
+        if (item?._id && !seen.has(item._id) && parsed) {
           seen.add(item._id);
-          valid.push(item);
+          valid.push({
+            ...item,
+            latitude: parsed.latitude,
+            longitude: parsed.longitude,
+          });
         }
       }
+
       setIssues(valid);
       setSelectedIssue((prev) =>
         prev ? valid.find((v) => v._id === prev._id) || null : null
       );
     } catch (err) {
-      console.warn('Nearby fetch error:', err);
-      setMapError(err.message || 'Unable to load nearby issues from server.');
+      console.warn('Error fetching map issues:', err.message);
+      setApiError(err.message || 'Unable to load complaints from backend.');
+    } finally {
+      setLoadingIssues(false);
+      setRefreshing(false);
     }
   }, []);
 
-  const initOrRefreshLocation = useCallback(
+  const fetchDeviceLocationAndIssues = useCallback(
     async (radKm = radiusKm, forceGps = false) => {
+      if (isManualCenter && searchCenter && !forceGps) {
+        await fetchIssuesForMap(searchCenter, radKm);
+        return;
+      }
+
       try {
-        setLoading(true);
-        setMapError('');
-
-        // Preserve user's manually chosen search location unless forcing GPS retry
-        if (searchCenter?.isManual && !forceGps) {
-          await fetchNearbyAt(searchCenter, radKm);
-          return;
-        }
-
+        setLocating(true);
         const { status } = await Location.requestForegroundPermissionsAsync();
+
         if (status === 'granted') {
           setHasLocationPermission(true);
           setLocationNotice('');
@@ -129,71 +167,68 @@ export default function NearbyMapScreen() {
               accuracy: Location.Accuracy.Balanced,
             });
             const coords = {
-              latitude: loc.coords.latitude,
-              longitude: loc.coords.longitude,
-              isManual: false,
+              latitude: Number(loc.coords.latitude),
+              longitude: Number(loc.coords.longitude),
             };
             setSearchCenter(coords);
-            await fetchNearbyAt(coords, radKm);
-            if (mapReady) {
-              animateCameraTo(coords, radKm);
-            }
+            setIsManualCenter(false);
+            safeAnimateToRegion(coords, radKm);
+            await fetchIssuesForMap(coords, radKm);
             return;
-          } catch (locErr) {
-            console.warn('GPS fetch error:', locErr);
+          } catch (gpsErr) {
+            console.warn('GPS fetch error:', gpsErr.message);
             setLocationNotice(
-              'Unable to get current GPS fix. Retry GPS or pick a search location manually.'
+              'GPS signal unavailable. Map stays active — tap GPS to retry or Set Pin.'
             );
           }
         } else {
           setHasLocationPermission(false);
           setLocationNotice(
-            'Location permission denied. Tap "Set Location" or retry GPS permission.'
+            'Location permission denied. Enable GPS or tap Set Pin to filter by distance.'
           );
         }
 
-        if (searchCenter) {
-          await fetchNearbyAt(searchCenter, radKm);
-        } else {
-          setIssues([]);
-        }
+        // Load available issues even when user location is unavailable
+        await fetchIssuesForMap(searchCenter, radKm);
       } finally {
-        setLoading(false);
+        setLocating(false);
         setRefreshing(false);
       }
     },
-    [radiusKm, searchCenter, fetchNearbyAt, mapReady]
+    [radiusKm, isManualCenter, searchCenter, fetchIssuesForMap, safeAnimateToRegion]
   );
 
+  // Load once on screen focus
   useFocusEffect(
     useCallback(() => {
-      initOrRefreshLocation(radiusKm, false);
+      fetchDeviceLocationAndIssues(radiusKm, false);
     }, [radiusKm])
   );
 
+  // When map becomes ready after location arrived earlier, center it cleanly
+  useEffect(() => {
+    if (mapReadyRef.current && searchCenter) {
+      safeAnimateToRegion(searchCenter, radiusKm);
+    }
+  }, [searchCenter, radiusKm, safeAnimateToRegion]);
+
   const handleSelectRadius = async (km) => {
     setRadiusKm(km);
-    if (searchCenter) {
-      setLoading(true);
-      await fetchNearbyAt(searchCenter, km);
-      setLoading(false);
-      if (mapReady) {
-        animateCameraTo(searchCenter, km);
-      }
-    }
+    safeAnimateToRegion(searchCenter || DEFAULT_REGION, km);
+    await fetchIssuesForMap(searchCenter, km);
   };
 
   const handleManualLocationPicked = async ({ latitude, longitude }) => {
-    const manualCoords = { latitude, longitude, isManual: true };
+    const manualCoords = {
+      latitude: Number(latitude),
+      longitude: Number(longitude),
+    };
     setManualModalVisible(false);
-    setLocationNotice('Showing nearby complaints around manually selected pin.');
+    setIsManualCenter(true);
     setSearchCenter(manualCoords);
-    setLoading(true);
-    await fetchNearbyAt(manualCoords, radiusKm);
-    setLoading(false);
-    if (mapReady) {
-      animateCameraTo(manualCoords, radiusKm);
-    }
+    setLocationNotice('Showing nearby complaints around selected map pin.');
+    safeAnimateToRegion(manualCoords, radiusKm);
+    await fetchIssuesForMap(manualCoords, radiusKm);
   };
 
   const handleIssueUpdated = (updated) => {
@@ -249,7 +284,7 @@ export default function NearbyMapScreen() {
             <Ionicons name="navigate-outline" size={12} color={COLORS.primary} />{' '}
             {typeof item.distanceKm === 'number'
               ? `${item.distanceKm.toFixed(2)} km away`
-              : 'Nearby'}
+              : 'All Mapped Areas'}
           </Text>
           <Text style={styles.listAddress} numberOfLines={1}>
             {item.address || `${item.latitude.toFixed(4)}, ${item.longitude.toFixed(4)}`}
@@ -269,15 +304,6 @@ export default function NearbyMapScreen() {
     </Card>
   );
 
-  const initialRegion = searchCenter
-    ? {
-        latitude: searchCenter.latitude,
-        longitude: searchCenter.longitude,
-        latitudeDelta: 0.04,
-        longitudeDelta: 0.04,
-      }
-    : APP_CONFIG.defaultLocation;
-
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <Header
@@ -285,7 +311,7 @@ export default function NearbyMapScreen() {
         subtitle={
           searchCenter
             ? `${issues.length} reports within ${radiusKm} km`
-            : 'Location needed to measure distances'
+            : `${issues.length} street reports`
         }
         rightComponent={
           <View style={styles.viewToggle}>
@@ -345,7 +371,7 @@ export default function NearbyMapScreen() {
 
         <View style={styles.locButtonsRow}>
           <TouchableOpacity
-            onPress={() => initOrRefreshLocation(radiusKm, true)}
+            onPress={() => fetchDeviceLocationAndIssues(radiusKm, true)}
             style={styles.smallLocBtn}
           >
             <Ionicons name="locate" size={14} color={COLORS.primary} />
@@ -357,36 +383,36 @@ export default function NearbyMapScreen() {
           >
             <Ionicons name="pin" size={14} color={COLORS.secondary} />
             <Text style={[styles.smallLocBtnText, { color: COLORS.secondary }]}>
-              Set Location
+              Set Pin
             </Text>
           </TouchableOpacity>
         </View>
       </View>
 
-      {/* Permission / Error Banner */}
-      {(locationNotice || mapError) ? (
+      {/* Non-blocking Location or API Status Banner (never hides the map) */}
+      {locationNotice || apiError ? (
         <View style={styles.bannerNotice}>
           <Ionicons
-            name={mapError ? 'alert-circle-outline' : 'location-outline'}
+            name={apiError ? 'alert-circle-outline' : 'location-outline'}
             size={16}
-            color={mapError ? COLORS.danger : COLORS.pending}
+            color={apiError ? COLORS.danger : COLORS.pending}
           />
-          <Text style={styles.bannerNoticeText}>
-            {mapError || locationNotice}
+          <Text style={styles.bannerNoticeText} numberOfLines={2}>
+            {apiError || locationNotice}
           </Text>
+          {apiError ? (
+            <TouchableOpacity
+              onPress={() => fetchIssuesForMap(searchCenter, radiusKm)}
+              style={styles.retryMiniBtn}
+            >
+              <Text style={styles.retryMiniText}>Retry</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       ) : null}
 
-      {/* Main Content: Map OR List */}
-      {!searchCenter && !loading ? (
-        <EmptyState
-          icon="location-outline"
-          title="Location Needed"
-          description="Allow GPS permission or pick a location manually on the map to find street issues within 1, 3, or 5 km."
-          actionLabel="Pick Location on Map"
-          onAction={() => setManualModalVisible(true)}
-        />
-      ) : viewMode === 'list' ? (
+      {/* Main View: List View OR Always-Visible Interactive Map */}
+      {viewMode === 'list' ? (
         <FlatList
           data={issues}
           keyExtractor={(item) => item._id}
@@ -397,18 +423,22 @@ export default function NearbyMapScreen() {
               refreshing={refreshing}
               onRefresh={() => {
                 setRefreshing(true);
-                initOrRefreshLocation(radiusKm, false);
+                fetchDeviceLocationAndIssues(radiusKm, false);
               }}
               colors={[COLORS.primary]}
             />
           }
           ListEmptyComponent={
-            !loading ? (
+            !loadingIssues ? (
               <EmptyState
                 icon="checkmark-circle-outline"
-                title={`No Issues Within ${radiusKm} km`}
-                description="Try expanding your distance filter to 5 km or picking another search location."
-                actionLabel={radiusKm < 5 ? 'Expand to 5 km' : 'Change Location'}
+                title={
+                  searchCenter
+                    ? `No Issues Within ${radiusKm} km`
+                    : 'No Complaints Found'
+                }
+                description="Try expanding your distance filter to 5 km or picking another pin location."
+                actionLabel={radiusKm < 5 ? 'Expand to 5 km' : 'Set Map Pin'}
                 onAction={() =>
                   radiusKm < 5
                     ? handleSelectRadius(5)
@@ -423,59 +453,74 @@ export default function NearbyMapScreen() {
           {MapView ? (
             <MapView
               ref={mapRef}
-              provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
               style={styles.map}
-              initialRegion={initialRegion}
-              showsUserLocation={hasLocationPermission && !searchCenter?.isManual}
+              initialRegion={DEFAULT_REGION}
+              showsUserLocation={hasLocationPermission && !isManualCenter}
               showsMyLocationButton={false}
+              zoomEnabled
+              scrollEnabled
+              pitchEnabled
+              rotateEnabled
               onMapReady={() => {
-                setMapReady(true);
+                mapReadyRef.current = true;
                 if (searchCenter) {
-                  animateCameraTo(searchCenter, radiusKm);
+                  safeAnimateToRegion(searchCenter, radiusKm);
                 }
               }}
               onPress={() => setSelectedIssue(null)}
             >
               {searchCenter && Circle ? (
                 <Circle
-                  center={searchCenter}
+                  center={{
+                    latitude: searchCenter.latitude,
+                    longitude: searchCenter.longitude,
+                  }}
                   radius={radiusKm * 1000}
                   strokeColor="rgba(13, 148, 136, 0.55)"
-                  fillColor="rgba(13, 148, 136, 0.1)"
+                  fillColor="rgba(13, 148, 136, 0.10)"
                 />
               ) : null}
 
-              {searchCenter?.isManual ? (
+              {isManualCenter && searchCenter && Marker ? (
                 <Marker
-                  coordinate={searchCenter}
-                  pinColor={COLORS.secondary}
-                  title="Search Center"
-                />
-              ) : null}
-
-              {issues.map((issue) => (
-                <Marker
-                  key={`${issue._id}_${issue.status}`}
                   coordinate={{
-                    latitude: issue.latitude,
-                    longitude: issue.longitude,
+                    latitude: searchCenter.latitude,
+                    longitude: searchCenter.longitude,
                   }}
-                  title={issue.title}
-                  description={`${issue.category} • ${issue.distanceKm ?? ''} km`}
-                  pinColor={getMarkerPinColor(issue.status)}
-                  onPress={(e) => {
-                    e.stopPropagation();
-                    setSelectedIssue(issue);
-                  }}
+                  pinColor={COLORS.secondary}
+                  title="Selected Search Center"
                 />
-              ))}
+              ) : null}
+
+              {Marker
+                ? issues.map((issue) => (
+                    <Marker
+                      key={`${issue._id}_${issue.status}`}
+                      coordinate={{
+                        latitude: issue.latitude,
+                        longitude: issue.longitude,
+                      }}
+                      title={issue.title}
+                      description={`${issue.category} • ${normalizeStatusLabel(issue.status)}${
+                        typeof issue.distanceKm === 'number'
+                          ? ` • ${issue.distanceKm.toFixed(2)} km`
+                          : ''
+                      }`}
+                      pinColor={getMarkerPinColor(issue.status)}
+                      onPress={(e) => {
+                        if (e?.stopPropagation) e.stopPropagation();
+                        setSelectedIssue(issue);
+                      }}
+                    />
+                  ))
+                : null}
             </MapView>
           ) : (
             <View style={styles.fallbackBox}>
               <Ionicons name="map-outline" size={44} color={COLORS.primary} />
-              <Text style={styles.fallbackTitle}>Map View Unavailable</Text>
+              <Text style={styles.fallbackTitle}>Map Unavailable on Web</Text>
               <Text style={styles.fallbackText}>
-                Switch to List View above to inspect nearby complaints and distances.
+                Open the app in Android Expo Go for the interactive Google Map, or switch to List View above.
               </Text>
             </View>
           )}
@@ -499,6 +544,18 @@ export default function NearbyMapScreen() {
               <Text style={styles.legendText}>Resolved</Text>
             </View>
           </View>
+
+          {/* Non-blocking empty-state pill over the map when 0 nearby complaints */}
+          {!loadingIssues && !locating && !selectedIssue && issues.length === 0 ? (
+            <View style={styles.emptyMapPill}>
+              <Ionicons name="information-circle-outline" size={16} color={COLORS.primary} />
+              <Text style={styles.emptyMapPillText}>
+                {searchCenter
+                  ? `No issues within ${radiusKm} km. Try 5 km or Set Pin.`
+                  : 'No complaints plotted yet.'}
+              </Text>
+            </View>
+          ) : null}
 
           {/* Selected Issue Preview Card */}
           {selectedIssue ? (
@@ -533,7 +590,7 @@ export default function NearbyMapScreen() {
                   <Text style={styles.distanceText}>
                     {typeof selectedIssue.distanceKm === 'number'
                       ? `${selectedIssue.distanceKm.toFixed(2)} km away`
-                      : 'Nearby'}
+                      : 'Mapped Location'}
                   </Text>
                   <Text style={styles.previewAddress} numberOfLines={1}>
                     {selectedIssue.address || 'GPS Coordinates'}
@@ -561,10 +618,12 @@ export default function NearbyMapScreen() {
             </View>
           ) : null}
 
-          {loading ? (
+          {(loadingIssues || locating) ? (
             <View style={styles.loadingOverlay}>
               <ActivityIndicator size="small" color={COLORS.primary} />
-              <Text style={styles.loadingText}>Finding issues within {radiusKm} km...</Text>
+              <Text style={styles.loadingText}>
+                {locating ? 'Getting GPS location...' : `Loading issues (${radiusKm} km)...`}
+              </Text>
             </View>
           ) : null}
         </View>
@@ -669,12 +728,27 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZE.xs,
     color: COLORS.textSecondary,
   },
+  retryMiniBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    backgroundColor: COLORS.primaryLight,
+    borderRadius: RADIUS.sm,
+  },
+  retryMiniText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: COLORS.primary,
+  },
   mapContainer: {
     flex: 1,
+    minHeight: 300,
     position: 'relative',
+    backgroundColor: '#e5e7eb',
   },
   map: {
-    ...StyleSheet.absoluteFillObject,
+    flex: 1,
+    width: '100%',
+    height: '100%',
   },
   legend: {
     position: 'absolute',
@@ -707,6 +781,28 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '600',
     color: COLORS.text,
+  },
+  emptyMapPill: {
+    position: 'absolute',
+    bottom: SPACING.md,
+    left: SPACING.md,
+    right: SPACING.md,
+    backgroundColor: 'rgba(255, 255, 255, 0.96)',
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    ...SHADOW.card,
+  },
+  emptyMapPillText: {
+    flex: 1,
+    fontSize: FONT_SIZE.xs,
+    color: COLORS.text,
+    fontWeight: '600',
   },
   previewCard: {
     position: 'absolute',
