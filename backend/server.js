@@ -95,8 +95,8 @@ app.use(errorHandler);
 
 // Start server unless imported for testing
 if (process.env.NODE_ENV !== 'test') {
-  app.listen(PORT, () => {
-    console.log(`🚀 FixMyStreet Server listening on port ${PORT}`);
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 FixMyStreet Server listening on port ${PORT} (0.0.0.0)`);
     console.log(`📡 Health check available at http://localhost:${PORT}/api/health`);
   });
 }

@@ -162,7 +162,8 @@ export default function ReportIssueScreen() {
           mediaTypes: ['images'],
           allowsEditing: true,
           aspect: [4, 3],
-          quality: 0.65,
+          quality: 0.55,
+          base64: true,
         });
       } else {
         const { status } =
@@ -178,7 +179,8 @@ export default function ReportIssueScreen() {
           mediaTypes: ['images'],
           allowsEditing: true,
           aspect: [4, 3],
-          quality: 0.65,
+          quality: 0.55,
+          base64: true,
         });
       }
 

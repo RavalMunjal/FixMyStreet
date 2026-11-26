@@ -172,6 +172,22 @@ async function runTests() {
         uploadRes.status === 201 && !!uploadedUrl
       );
 
+      // JSON base64 upload fallback
+      const base64Upload = await request(
+        'POST',
+        '/api/uploads/image',
+        {
+          base64:
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+          mimeType: 'image/png',
+        },
+        { Authorization: `Bearer ${citizenToken}` }
+      );
+      assert(
+        'POST /api/uploads/image accepts JSON base64 upload cleanly',
+        base64Upload.status === 201 && !!base64Upload.body?.data?.url
+      );
+
       // Urgency validation
       const invalidUrgency = await request(
         'POST',
@@ -324,6 +340,20 @@ async function runTests() {
       );
 
       if (adminToken && issueA?._id) {
+        const adminListRes = await request('GET', '/api/admin/issues', null, {
+          Authorization: `Bearer ${adminToken}`,
+        });
+        const listedA = adminListRes.body?.data?.issues?.find(
+          (i) => i._id === issueA._id
+        );
+        assert(
+          'GET /api/admin/issues shows submitted citizen report with reporter & urgency details',
+          adminListRes.status === 200 &&
+            !!listedA &&
+            listedA.title === 'E2E Close Pothole' &&
+            listedA.reportedBy?.email === testCitizenEmail
+        );
+
         const urgRes = await request(
           'PATCH',
           `/api/admin/issues/${issueA._id}/urgency`,

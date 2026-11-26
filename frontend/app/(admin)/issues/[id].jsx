@@ -96,7 +96,8 @@ export default function AdminIssueReviewScreen() {
         mediaTypes: ['images'],
         allowsEditing: true,
         aspect: [4, 3],
-        quality: 0.65,
+        quality: 0.55,
+        base64: true,
       });
       if (!res.canceled && res.assets && res.assets.length > 0) {
         const selected = res.assets[0];

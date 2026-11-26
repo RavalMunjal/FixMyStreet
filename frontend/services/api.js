@@ -229,8 +229,12 @@ const normalizeMimeAndName = (imageInput) => {
 export const uploadService = {
   async uploadImage(imageInput) {
     const { uri, filename, mimeType, fileSize } = normalizeMimeAndName(imageInput);
+    const base64 =
+      typeof imageInput === 'object' && imageInput !== null
+        ? imageInput.base64
+        : null;
 
-    if (!uri) {
+    if (!uri && !base64) {
       throw new Error('No photo selected for upload.');
     }
 
@@ -243,54 +247,91 @@ export const uploadService = {
       throw new Error('Authentication required before uploading photo.');
     }
 
-    const formData = new FormData();
-    formData.append('image', {
-      uri,
-      name: filename,
-      type: mimeType,
-    });
+    // Use native XMLHttpRequest for React Native multipart upload (avoids Expo SDK 58 Winter fetch FormData restriction)
+    const uploadViaXhr = () =>
+      new Promise((resolve, reject) => {
+        const formData = new FormData();
+        formData.append('image', {
+          uri,
+          name: filename,
+          type: mimeType,
+        });
 
-    // Use native fetch so React Native sets the exact multipart boundary reliably
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', `${API_BASE_URL}/uploads/image`);
+        xhr.timeout = 30000;
+        xhr.setRequestHeader('Accept', 'application/json');
+        xhr.setRequestHeader('Authorization', `Bearer ${token}`);
 
-    try {
-      const response = await fetch(`${API_BASE_URL}/uploads/image`, {
-        method: 'POST',
-        headers: {
-          Accept: 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: formData,
-        signal: controller.signal,
+        xhr.onload = () => {
+          let parsed = {};
+          try {
+            parsed = xhr.responseText ? JSON.parse(xhr.responseText) : {};
+          } catch (e) {
+            parsed = { message: xhr.responseText || 'Unexpected upload response' };
+          }
+
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve(parsed);
+          } else {
+            if (xhr.status === 401 && unauthorizedHandler) {
+              unauthorizedHandler();
+            }
+            reject(
+              new Error(
+                parsed.message || `Image upload failed with status ${xhr.status}`
+              )
+            );
+          }
+        };
+
+        xhr.onerror = () => {
+          reject(
+            new Error(
+              `Network error uploading photo to ${API_BASE_URL}/uploads/image. Check Wi-Fi and backend server.`
+            )
+          );
+        };
+
+        xhr.ontimeout = () => {
+          reject(new Error('Image upload timed out. Please try again.'));
+        };
+
+        xhr.send(formData);
       });
 
-      const responseText = await response.text();
-      let parsed = {};
-      try {
-        parsed = responseText ? JSON.parse(responseText) : {};
-      } catch (e) {
-        parsed = { message: responseText || 'Unexpected upload response' };
+    try {
+      if (uri && typeof XMLHttpRequest !== 'undefined') {
+        return await uploadViaXhr();
       }
-
-      if (!response.ok) {
-        if (response.status === 401 && unauthorizedHandler) {
-          unauthorizedHandler();
-        }
-        throw new Error(
-          parsed.message || `Image upload failed with status ${response.status}`
+    } catch (xhrError) {
+      // Fallback to JSON base64 upload if available and multipart failed
+      if (base64) {
+        const res = await api.post(
+          '/uploads/image',
+          {
+            base64,
+            mimeType,
+            fileName: filename,
+          },
+          { timeout: 30000 }
         );
+        return res.data;
       }
-
-      return parsed;
-    } catch (err) {
-      if (err.name === 'AbortError') {
-        throw new Error('Image upload timed out. Please try again on a stronger connection.');
-      }
-      throw err;
-    } finally {
-      clearTimeout(timeoutId);
+      throw xhrError;
     }
+
+    // Direct base64 upload if uri wasn't present
+    const res = await api.post(
+      '/uploads/image',
+      {
+        base64,
+        mimeType,
+        fileName: filename,
+      },
+      { timeout: 30000 }
+    );
+    return res.data;
   },
 };
 
