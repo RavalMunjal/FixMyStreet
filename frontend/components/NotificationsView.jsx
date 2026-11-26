@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,7 @@ import {
   FlatList,
   TouchableOpacity,
   RefreshControl,
+  Alert,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -65,7 +66,8 @@ export default function NotificationsView({ role = 'citizen' }) {
     markAllAsRead,
   } = useNotifications();
 
-  const [refreshing, setRefreshing] = React.useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [openingId, setOpeningId] = useState(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -79,17 +81,58 @@ export default function NotificationsView({ role = 'citizen' }) {
     setRefreshing(false);
   };
 
-  const handleOpenNotification = async (item) => {
-    if (!item.isRead) {
-      await markAsRead(item._id);
+  const handleBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace(role === 'admin' ? '/(admin)/dashboard' : '/(citizen)/home');
     }
-    const issueId = item.issue?._id || item.issue;
-    if (issueId) {
+  };
+
+  const handleMarkSingleRead = async (notificationId) => {
+    const result = await markAsRead(notificationId);
+    if (!result?.success) {
+      Alert.alert(
+        'Update Failed',
+        result?.error || 'Could not mark notification as read.'
+      );
+    }
+  };
+
+  const handleMarkAllRead = async () => {
+    const result = await markAllAsRead();
+    if (!result?.success) {
+      Alert.alert(
+        'Update Failed',
+        result?.error || 'Could not mark all notifications as read.'
+      );
+    }
+  };
+
+  const handleOpenNotification = async (item) => {
+    if (openingId === item._id) return;
+    setOpeningId(item._id);
+    try {
+      if (!item.isRead) {
+        await markAsRead(item._id);
+      }
+
+      const issueId = item.issue?._id || (typeof item.issue === 'string' ? item.issue : null);
+      if (!issueId) {
+        Alert.alert(
+          'Complaint Unavailable',
+          'This complaint is no longer available or has been deleted.'
+        );
+        return;
+      }
+
       router.push(
         role === 'admin'
           ? `/(admin)/issues/${issueId}`
           : `/(citizen)/issues/${issueId}`
       );
+    } finally {
+      setOpeningId(null);
     }
   };
 
@@ -98,7 +141,7 @@ export default function NotificationsView({ role = 'citizen' }) {
   const renderItem = ({ item }) => {
     const meta = getTypeMeta(item.type);
     const dateObj = item.createdAt ? new Date(item.createdAt) : null;
-    const issueId = item.issue?._id || item.issue;
+    const issueId = item.issue?._id || (typeof item.issue === 'string' ? item.issue : null);
 
     return (
       <TouchableOpacity
@@ -140,7 +183,10 @@ export default function NotificationsView({ role = 'citizen' }) {
             <View style={styles.actionsInline}>
               {!item.isRead ? (
                 <TouchableOpacity
-                  onPress={() => markAsRead(item._id)}
+                  onPress={(e) => {
+                    e?.stopPropagation?.();
+                    handleMarkSingleRead(item._id);
+                  }}
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   style={styles.markReadChip}
                 >
@@ -156,7 +202,9 @@ export default function NotificationsView({ role = 'citizen' }) {
                     ? 'Review Proof →'
                     : 'View →'}
                 </Text>
-              ) : null}
+              ) : (
+                <Text style={styles.removedText}>Complaint removed</Text>
+              )}
             </View>
           </View>
         </View>
@@ -165,17 +213,18 @@ export default function NotificationsView({ role = 'citizen' }) {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={styles.safeArea} edges={['top', 'bottom', 'left', 'right']}>
       <Header
         title="Notifications"
         subtitle={
           unreadCount > 0 ? `${unreadCount} unread alert(s)` : 'All caught up'
         }
         showBack
+        onBack={handleBack}
         rightComponent={
           unreadCount > 0 ? (
             <TouchableOpacity
-              onPress={markAllAsRead}
+              onPress={handleMarkAllRead}
               style={styles.markAllBtn}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
@@ -369,6 +418,11 @@ const styles = StyleSheet.create({
   viewIssueText: {
     fontSize: 11,
     fontWeight: '700',
+  },
+  removedText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: COLORS.textMuted,
   },
   errorBox: {
     flex: 1,

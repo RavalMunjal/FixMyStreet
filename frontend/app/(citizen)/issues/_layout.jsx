@@ -1,6 +1,10 @@
 import { Stack } from 'expo-router';
 import { COLORS } from '../../../constants/theme';
 
+export const unstable_settings = {
+  initialRouteName: 'index',
+};
+
 export default function CitizenIssuesLayout() {
   return (
     <Stack

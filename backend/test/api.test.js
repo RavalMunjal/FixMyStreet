@@ -446,17 +446,50 @@ async function runTests() {
       );
 
       if (adminToken) {
+        const adminUnreadRes = await request('GET', '/api/notifications/unread-count', null, {
+          Authorization: `Bearer ${adminToken}`,
+        });
         const adminNotifsRes = await request('GET', '/api/notifications', null, {
           Authorization: `Bearer ${adminToken}`,
         });
         const adminAlert = adminNotifsRes.body?.data?.notifications?.find(
           (n) => n.type === 'NEW_ISSUE_ADMIN' && (n.issue?._id || n.issue) === issueA._id
         );
+        const computedUnread = (adminNotifsRes.body?.data?.notifications || []).filter(
+          (n) => !n.isRead
+        ).length;
         assert(
-          'TEST 2: Responsible Admin receives "New Issue Reported" alert linking to issue',
+          'TEST 2: Responsible Admin receives "New Issue Reported" & unreadCount matches list',
           adminNotifsRes.status === 200 &&
+            adminUnreadRes.status === 200 &&
             !!adminAlert &&
-            adminAlert.title === 'New Issue Reported'
+            adminAlert.title === 'New Issue Reported' &&
+            adminUnreadRes.body?.data?.unreadCount === adminNotifsRes.body?.data?.unreadCount &&
+            adminUnreadRes.body?.data?.unreadCount === computedUnread
+        );
+
+        const adminReadRes = await request(
+          'PATCH',
+          `/api/notifications/${adminAlert._id}/read`,
+          null,
+          { Authorization: `Bearer ${adminToken}` }
+        );
+        const adminRelogin = await request('POST', '/api/auth/login', {
+          email: process.env.ADMIN_EMAIL || 'admin@fixmystreet.com',
+          password: process.env.ADMIN_PASSWORD || 'Admin@123456',
+        });
+        const adminAfterRelogin = await request('GET', '/api/notifications', null, {
+          Authorization: `Bearer ${adminRelogin.body?.data?.token}`,
+        });
+        const persistedAlert = (adminAfterRelogin.body?.data?.notifications || []).find(
+          (n) => n._id === adminAlert._id
+        );
+        assert(
+          'Admin notification marks read, updates unreadCount & persists across re-login',
+          adminReadRes.status === 200 &&
+            adminReadRes.body?.data?.notification?.isRead === true &&
+            adminReadRes.body?.data?.unreadCount === Math.max(0, computedUnread - 1) &&
+            persistedAlert?.isRead === true
         );
       }
 
@@ -468,8 +501,12 @@ async function runTests() {
           (n) => (n.issue?._id || n.issue) === issueA._id
         );
         assert(
-          'Event A Isolation: Unrelated Water-only Admin does NOT receive Pothole alert',
-          waterNotifsRes.status === 200 && !leakedPotholeAlert
+          'Event A Isolation & Empty State: Unrelated Water-only Admin gets empty notifications (no Pothole alert)',
+          waterNotifsRes.status === 200 &&
+            Array.isArray(waterNotifsRes.body?.data?.notifications) &&
+            waterNotifsRes.body?.data?.notifications.length === 0 &&
+            waterNotifsRes.body?.data?.unreadCount === 0 &&
+            !leakedPotholeAlert
         );
       }
 
@@ -611,6 +648,26 @@ async function runTests() {
       for (const cid of createdIds) {
         await Issue.findByIdAndDelete(cid);
       }
+
+      // Verify notifications with deleted complaints populate safely as null & issue lookup returns 404
+      if (adminToken && issueA?._id) {
+        const deletedIssueCheck = await request('GET', `/api/issues/${issueA._id}`, null, {
+          Authorization: `Bearer ${adminToken}`,
+        });
+        const adminAfterDeleteNotifs = await request('GET', '/api/notifications', null, {
+          Authorization: `Bearer ${adminToken}`,
+        });
+        const orphanedAdminNotif = (adminAfterDeleteNotifs.body?.data?.notifications || []).find(
+          (n) => n.type === 'NEW_ISSUE_ADMIN' && n.issue === null
+        );
+        assert(
+          'TEST 10: Deleted complaint notification returns safe null issue ref & 404 on issue detail',
+          deletedIssueCheck.status === 404 &&
+            adminAfterDeleteNotifs.status === 200 &&
+            !!orphanedAdminNotif
+        );
+      }
+
       await Notification.deleteMany({
         $or: [
           { issue: { $in: createdIds } },

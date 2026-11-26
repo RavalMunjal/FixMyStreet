@@ -39,12 +39,14 @@ try {
 
 export default function AdminIssueReviewScreen() {
   const { id } = useLocalSearchParams();
+  const issueId = Array.isArray(id) ? id[0] : id;
   const router = useRouter();
   const { fetchNotifications } = useNotifications();
 
   const [issue, setIssue] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState('');
 
   // Status, urgency & resolution state
   const [status, setStatus] = useState('Reported');
@@ -55,27 +57,42 @@ export default function AdminIssueReviewScreen() {
   const [updating, setUpdating] = useState(false);
 
   const fetchIssue = useCallback(async () => {
+    if (!issueId) {
+      setIssue(null);
+      setLoadError('Invalid complaint link. This complaint may have been deleted.');
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
     try {
-      const res = await issueService.getById(id);
+      setLoadError('');
+      const res = await issueService.getById(issueId);
       const data = res?.data?.issue;
-      setIssue(data);
-      if (data) {
-        setStatus(normalizeStatusLabel(data.status));
-        setConfirmedUrgency(data.confirmedUrgency || 'Normal');
-        setAdminNote(data.adminNote || '');
-        setRemovedExistingProof(false);
+      if (!data) {
+        setIssue(null);
+        setLoadError('This complaint could not be found or has been deleted.');
+        return;
       }
+      setIssue(data);
+      setStatus(normalizeStatusLabel(data.status));
+      setConfirmedUrgency(data.confirmedUrgency || 'Normal');
+      setAdminNote(data.adminNote || '');
+      setRemovedExistingProof(false);
     } catch (e) {
       console.warn('Error loading issue for admin:', e);
-      Alert.alert('Error', e.message || 'Unable to fetch complaint details.');
+      setIssue(null);
+      setLoadError(
+        e.message || 'This complaint could not be found or may have been deleted.'
+      );
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [id]);
+  }, [issueId]);
 
   useFocusEffect(
     useCallback(() => {
+      setLoading(true);
       fetchIssue();
     }, [fetchIssue])
   );
@@ -134,14 +151,14 @@ export default function AdminIssueReviewScreen() {
 
       if (status === 'Resolved') {
         await adminService.resolve(
-          id,
+          issueId,
           adminNote,
           uploadedResolutionUrl,
           confirmedUrgency
         );
       } else {
         await adminService.updateStatus(
-          id,
+          issueId,
           status,
           adminNote,
           confirmedUrgency
@@ -185,7 +202,25 @@ export default function AdminIssueReviewScreen() {
       <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
         <Header title="Complaint Review" showBack />
         <View style={styles.errorBox}>
-          <Text style={styles.errorText}>Complaint not found.</Text>
+          <Ionicons name="alert-circle-outline" size={48} color={COLORS.danger} />
+          <Text style={styles.errorText}>
+            {loadError || 'Complaint not found or has been deleted.'}
+          </Text>
+          <View style={styles.errorActionsRow}>
+            <TouchableOpacity
+              onPress={() =>
+                router.canGoBack()
+                  ? router.back()
+                  : router.replace('/(admin)/issues')
+              }
+              style={[styles.errorBtn, styles.backOutlineBtn]}
+            >
+              <Text style={styles.backOutlineText}>Go Back</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={fetchIssue} style={styles.errorBtn}>
+              <Text style={styles.errorBtnText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </SafeAreaView>
     );
@@ -661,5 +696,31 @@ const styles = StyleSheet.create({
   errorText: {
     fontSize: FONT_SIZE.md,
     color: COLORS.danger,
+    textAlign: 'center',
+    marginTop: SPACING.md,
+    marginBottom: SPACING.lg,
+  },
+  errorActionsRow: {
+    flexDirection: 'row',
+    gap: SPACING.sm,
+  },
+  errorBtn: {
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.sm,
+    backgroundColor: COLORS.secondary,
+    borderRadius: RADIUS.md,
+  },
+  errorBtnText: {
+    color: '#ffffff',
+    fontWeight: '700',
+  },
+  backOutlineBtn: {
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  backOutlineText: {
+    color: COLORS.text,
+    fontWeight: '700',
   },
 });

@@ -9,6 +9,7 @@ export default function CitizenLayout() {
 
   return (
     <Tabs
+      backBehavior="history"
       screenOptions={{
         headerShown: false,
         tabBarHideOnKeyboard: true,
@@ -85,7 +86,10 @@ export default function CitizenLayout() {
       <Tabs.Screen
         name="notifications"
         options={{
-          href: null,
+          title: 'Notifications',
+          tabBarButton: () => null,
+          tabBarItemStyle: { display: 'none' },
+          tabBarStyle: { display: 'none' },
         }}
       />
     </Tabs>

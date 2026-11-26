@@ -70,7 +70,9 @@ export const NotificationProvider = ({ children }) => {
 
   const markAsRead = useCallback(
     async (notificationId) => {
-      if (!notificationId || !isAuthenticated) return;
+      if (!notificationId || !isAuthenticated) {
+        return { success: false, error: 'Not authenticated' };
+      }
       try {
         const res = await notificationService.markAsRead(notificationId);
         const updated = res?.data?.notification;
@@ -82,23 +84,33 @@ export const NotificationProvider = ({ children }) => {
         if (typeof res?.data?.unreadCount === 'number') {
           setUnreadCount(res.data.unreadCount);
         } else {
-          refreshUnreadCount();
+          await refreshUnreadCount();
         }
+        return { success: true };
       } catch (err) {
         console.warn('Mark read error:', err.message);
+        return {
+          success: false,
+          error: err.message || 'Unable to mark notification as read.',
+        };
       }
     },
     [isAuthenticated, refreshUnreadCount]
   );
 
   const markAllAsRead = useCallback(async () => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated) {
+      return { success: false, error: 'Not authenticated' };
+    }
     try {
-      await notificationService.markAllAsRead();
+      const res = await notificationService.markAllAsRead();
       setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
-      setUnreadCount(0);
+      setUnreadCount(res?.data?.unreadCount ?? 0);
+      return { success: true };
     } catch (err) {
-      setError(err.message || 'Failed to mark notifications as read.');
+      const message = err.message || 'Failed to mark notifications as read.';
+      setError(message);
+      return { success: false, error: message };
     }
   }, [isAuthenticated]);
 

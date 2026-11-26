@@ -10,7 +10,7 @@ import {
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, useFocusEffect } from 'expo-router';
+import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../../context/AuthContext';
 import Header from '../../../components/Header';
@@ -34,6 +34,8 @@ try {
 
 export default function IssueDetailsScreen() {
   const { id } = useLocalSearchParams();
+  const issueId = Array.isArray(id) ? id[0] : id;
+  const router = useRouter();
   const { user } = useAuth();
 
   const [issue, setIssue] = useState(null);
@@ -42,21 +44,36 @@ export default function IssueDetailsScreen() {
   const [error, setError] = useState('');
 
   const fetchDetails = useCallback(async () => {
+    if (!issueId) {
+      setIssue(null);
+      setError('Complaint not found or has been deleted.');
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
     try {
       setError('');
-      const res = await issueService.getById(id);
-      setIssue(res?.data?.issue);
+      const res = await issueService.getById(issueId);
+      const data = res?.data?.issue;
+      if (!data) {
+        setIssue(null);
+        setError('Complaint not found or has been deleted.');
+        return;
+      }
+      setIssue(data);
     } catch (err) {
       console.warn('Error fetching issue details:', err);
-      setError(err.message || 'Unable to load complaint details. Please try again.');
+      setIssue(null);
+      setError(err.message || 'Complaint not found or has been deleted.');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [id]);
+  }, [issueId]);
 
   useFocusEffect(
     useCallback(() => {
+      setLoading(true);
       fetchDetails();
     }, [fetchDetails])
   );
@@ -84,9 +101,21 @@ export default function IssueDetailsScreen() {
           <Text style={styles.errorText}>
             {error || 'Complaint not found or has been removed.'}
           </Text>
-          <TouchableOpacity onPress={fetchDetails} style={styles.retryBtn}>
-            <Text style={styles.retryText}>Retry</Text>
-          </TouchableOpacity>
+          <View style={styles.errorActionsRow}>
+            <TouchableOpacity
+              onPress={() =>
+                router.canGoBack()
+                  ? router.back()
+                  : router.replace('/(citizen)/issues')
+              }
+              style={[styles.retryBtn, styles.backOutlineBtn]}
+            >
+              <Text style={styles.backOutlineText}>Go Back</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={fetchDetails} style={styles.retryBtn}>
+              <Text style={styles.retryText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </SafeAreaView>
     );
@@ -401,6 +430,10 @@ const styles = StyleSheet.create({
     marginTop: SPACING.md,
     marginBottom: SPACING.lg,
   },
+  errorActionsRow: {
+    flexDirection: 'row',
+    gap: SPACING.sm,
+  },
   retryBtn: {
     paddingHorizontal: SPACING.xl,
     paddingVertical: SPACING.sm,
@@ -409,6 +442,15 @@ const styles = StyleSheet.create({
   },
   retryText: {
     color: '#ffffff',
+    fontWeight: '700',
+  },
+  backOutlineBtn: {
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  backOutlineText: {
+    color: COLORS.text,
     fontWeight: '700',
   },
 });
