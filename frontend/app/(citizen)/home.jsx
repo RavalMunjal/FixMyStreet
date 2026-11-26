@@ -12,11 +12,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
+import { useNotifications } from '../../context/NotificationContext';
 import { issueService } from '../../services/api';
 import Card from '../../components/Card';
 import Badge from '../../components/Badge';
 import Button from '../../components/Button';
 import SupportButton from '../../components/SupportButton';
+import NotificationBell from '../../components/NotificationBell';
 import Loading from '../../components/Loading';
 import EmptyState from '../../components/EmptyState';
 import { COLORS, SPACING, FONT_SIZE, RADIUS } from '../../constants/theme';
@@ -24,6 +26,7 @@ import { COLORS, SPACING, FONT_SIZE, RADIUS } from '../../constants/theme';
 export default function HomeDashboard() {
   const router = useRouter();
   const { user } = useAuth();
+  const { refreshUnreadCount } = useNotifications();
 
   const [stats, setStats] = useState({
     total: 0,
@@ -74,7 +77,8 @@ export default function HomeDashboard() {
   useFocusEffect(
     useCallback(() => {
       fetchDashboardData();
-    }, [fetchDashboardData])
+      refreshUnreadCount();
+    }, [fetchDashboardData, refreshUnreadCount])
   );
 
   const onRefresh = () => {
@@ -116,12 +120,15 @@ export default function HomeDashboard() {
               {user?.name || 'Citizen'}
             </Text>
           </View>
-          <TouchableOpacity
-            style={styles.profileBadge}
-            onPress={() => router.push('/(citizen)/profile')}
-          >
-            <Ionicons name="person" size={20} color={COLORS.primary} />
-          </TouchableOpacity>
+          <View style={styles.headerActions}>
+            <NotificationBell />
+            <TouchableOpacity
+              style={styles.profileBadge}
+              onPress={() => router.push('/(citizen)/profile')}
+            >
+              <Ionicons name="person" size={20} color={COLORS.primary} />
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Quick Action Banner */}
@@ -300,6 +307,11 @@ const styles = StyleSheet.create({
   headerTextCol: {
     flex: 1,
     marginRight: SPACING.sm,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.xs + 2,
   },
   greeting: {
     fontSize: FONT_SIZE.sm,

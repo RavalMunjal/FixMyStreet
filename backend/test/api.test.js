@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const app = require('../server');
 const User = require('../models/User');
 const Issue = require('../models/Issue');
+const Notification = require('../models/Notification');
 const { ensureDefaultAccounts } = require('../utils/seedAdmin');
 
 async function runTests() {
@@ -90,6 +91,8 @@ async function runTests() {
   };
 
   const testCitizenEmail = `e2e_citizen_${Date.now()}@test.com`;
+  const testCitizen2Email = `e2e_citizen2_${Date.now()}@test.com`;
+  const unrelatedAdminEmail = `e2e_admin_water_${Date.now()}@test.com`;
   const createdIds = [];
 
   try {
@@ -397,10 +400,226 @@ async function runTests() {
         searchRes.status === 200 && typeof searchRes.body?.data?.stats?.total === 'number'
       );
 
+      // ================== NOTIFICATION SYSTEM E2E TESTS ==================
+      // Unauthenticated notifications access rejected
+      const unauthNotif = await request('GET', '/api/notifications');
+      assert(
+        'GET /api/notifications rejects missing JWT with 401',
+        unauthNotif.status === 401
+      );
+
+      // Register Citizen 2 and create a Water-only Admin to test isolation & dedupe
+      const reg2Res = await request('POST', '/api/auth/register', {
+        name: 'Second Citizen',
+        email: testCitizen2Email,
+        password: 'Password123',
+        confirmPassword: 'Password123',
+      });
+      const citizen2Token = reg2Res.body?.data?.token;
+
+      const waterAdminHash = await User.hashPassword('Admin@123456');
+      const waterAdmin = await User.create({
+        name: 'Water Dept Admin',
+        email: unrelatedAdminEmail,
+        passwordHash: waterAdminHash,
+        role: 'admin',
+        assignedCategories: ['Water Leakage'],
+      });
+      const waterAdminLogin = await request('POST', '/api/auth/login', {
+        email: unrelatedAdminEmail,
+        password: 'Admin@123456',
+      });
+      const waterAdminToken = waterAdminLogin.body?.data?.token;
+
+      // TEST 1 & 2: Citizen submitted Pothole issueA -> Citizen & general Admin notified, Water-only Admin NOT notified
+      const c1NotifsRes = await request('GET', '/api/notifications', null, {
+        Authorization: `Bearer ${citizenToken}`,
+      });
+      const submittedNotif = c1NotifsRes.body?.data?.notifications?.find(
+        (n) => n.type === 'ISSUE_SUBMITTED' && (n.issue?._id || n.issue) === issueA._id
+      );
+      assert(
+        'TEST 1: Citizen receives "Report Submitted Successfully" in MongoDB after issue creation',
+        c1NotifsRes.status === 200 &&
+          !!submittedNotif &&
+          submittedNotif.title === 'Report Submitted Successfully'
+      );
+
+      if (adminToken) {
+        const adminNotifsRes = await request('GET', '/api/notifications', null, {
+          Authorization: `Bearer ${adminToken}`,
+        });
+        const adminAlert = adminNotifsRes.body?.data?.notifications?.find(
+          (n) => n.type === 'NEW_ISSUE_ADMIN' && (n.issue?._id || n.issue) === issueA._id
+        );
+        assert(
+          'TEST 2: Responsible Admin receives "New Issue Reported" alert linking to issue',
+          adminNotifsRes.status === 200 &&
+            !!adminAlert &&
+            adminAlert.title === 'New Issue Reported'
+        );
+      }
+
+      if (waterAdminToken) {
+        const waterNotifsRes = await request('GET', '/api/notifications', null, {
+          Authorization: `Bearer ${waterAdminToken}`,
+        });
+        const leakedPotholeAlert = waterNotifsRes.body?.data?.notifications?.find(
+          (n) => (n.issue?._id || n.issue) === issueA._id
+        );
+        assert(
+          'Event A Isolation: Unrelated Water-only Admin does NOT receive Pothole alert',
+          waterNotifsRes.status === 200 && !leakedPotholeAlert
+        );
+      }
+
+      // TEST 3: Status Updated & Issue Resolved notifications exist for Citizen 1
+      if (adminToken && issueA?._id) {
+        await request(
+          'POST',
+          `/api/admin/issues/${issueA._id}/resolve`,
+          { adminNote: 'Fixed completely', resolutionImageUrl: uploadedUrl },
+          { Authorization: `Bearer ${adminToken}` }
+        );
+        const c1AfterUpdate = await request('GET', '/api/notifications', null, {
+          Authorization: `Bearer ${citizenToken}`,
+        });
+        const statusNotif = c1AfterUpdate.body?.data?.notifications?.find(
+          (n) => n.type === 'STATUS_UPDATED' && (n.issue?._id || n.issue) === issueA._id
+        );
+        const resolvedNotif = c1AfterUpdate.body?.data?.notifications?.find(
+          (n) => n.type === 'ISSUE_RESOLVED' && (n.issue?._id || n.issue) === issueA._id
+        );
+        assert(
+          'TEST 3: Citizen receives STATUS_UPDATED and ISSUE_RESOLVED notifications after admin updates',
+          !!statusNotif && !!resolvedNotif
+        );
+      }
+
+      // Event D: Citizen 2 supports issueA twice (via remove + re-add) -> only 1 deduped notification for Citizen 1
+      if (citizen2Token && issueA?._id) {
+        await request('POST', `/api/issues/${issueA._id}/support`, null, {
+          Authorization: `Bearer ${citizen2Token}`,
+        });
+        await request('DELETE', `/api/issues/${issueA._id}/support`, null, {
+          Authorization: `Bearer ${citizen2Token}`,
+        });
+        await request('POST', `/api/issues/${issueA._id}/support`, null, {
+          Authorization: `Bearer ${citizen2Token}`,
+        });
+        const c1AfterSupport = await request('GET', '/api/notifications', null, {
+          Authorization: `Bearer ${citizenToken}`,
+        });
+        const supportNotifs = (c1AfterSupport.body?.data?.notifications || []).filter(
+          (n) => n.type === 'ISSUE_SUPPORTED' && (n.issue?._id || n.issue) === issueA._id
+        );
+        assert(
+          'Event D: Original reporter receives 1 deduped "Someone Supported Your Report" notification',
+          supportNotifs.length === 1 &&
+            supportNotifs[0].title === 'Someone Supported Your Report'
+        );
+      }
+
+      // TEST 9: Another citizen cannot mark Citizen 1's notification read
+      if (citizen2Token && submittedNotif?._id) {
+        const crossRead = await request(
+          'PATCH',
+          `/api/notifications/${submittedNotif._id}/read`,
+          null,
+          { Authorization: `Bearer ${citizen2Token}` }
+        );
+        assert(
+          'TEST 9: User cannot mark or access another user notification (404)',
+          crossRead.status === 404 && crossRead.body.success === false
+        );
+      }
+
+      // TEST 4 & 5: Mark single read, verify unread decrement, re-login persistence, mark all read
+      const unreadBefore = await request('GET', '/api/notifications/unread-count', null, {
+        Authorization: `Bearer ${citizenToken}`,
+      });
+      const countBefore = unreadBefore.body?.data?.unreadCount || 0;
+      const readOne = await request(
+        'PATCH',
+        `/api/notifications/${submittedNotif._id}/read`,
+        null,
+        { Authorization: `Bearer ${citizenToken}` }
+      );
+      assert(
+        'TEST 4: PATCH /api/notifications/:id/read marks read & decrements unreadCount',
+        readOne.status === 200 &&
+          readOne.body?.data?.notification?.isRead === true &&
+          readOne.body?.data?.unreadCount === Math.max(0, countBefore - 1)
+      );
+
+      const reloginRes = await request('POST', '/api/auth/login', {
+        email: testCitizenEmail,
+        password: 'Password123',
+      });
+      const reloginNotifs = await request('GET', '/api/notifications', null, {
+        Authorization: `Bearer ${reloginRes.body?.data?.token}`,
+      });
+      assert(
+        'TEST 5: Notifications persist in MongoDB across logout/re-login',
+        reloginNotifs.status === 200 &&
+          reloginNotifs.body?.data?.notifications?.length >= 4
+      );
+
+      const readAll = await request('PATCH', '/api/notifications/read-all', null, {
+        Authorization: `Bearer ${citizenToken}`,
+      });
+      assert(
+        'PATCH /api/notifications/read-all sets unreadCount to 0',
+        readAll.status === 200 && readAll.body?.data?.unreadCount === 0
+      );
+
+      // Push token validation & multi-account device handover
+      const badTokenRes = await request(
+        'POST',
+        '/api/notifications/push-token',
+        { token: 'invalid-token' },
+        { Authorization: `Bearer ${citizenToken}` }
+      );
+      assert(
+        'POST /api/notifications/push-token rejects malformed token with 400',
+        badTokenRes.status === 400
+      );
+
+      const goodToken = `ExponentPushToken[e2eDevice${Date.now()}]`;
+      const regToken1 = await request(
+        'POST',
+        '/api/notifications/push-token',
+        { token: goodToken },
+        { Authorization: `Bearer ${citizenToken}` }
+      );
+      const regToken2 = await request(
+        'POST',
+        '/api/notifications/push-token',
+        { token: goodToken },
+        { Authorization: `Bearer ${citizen2Token}` }
+      );
+      const c1UserDoc = await User.findOne({ email: testCitizenEmail }).select('pushTokens');
+      const c2UserDoc = await User.findOne({ email: testCitizen2Email }).select('pushTokens');
+      assert(
+        'POST /api/notifications/push-token associates token & transfers cleanly on account switch',
+        regToken1.status === 200 &&
+          regToken2.status === 200 &&
+          !c1UserDoc.pushTokens.includes(goodToken) &&
+          c2UserDoc.pushTokens.includes(goodToken)
+      );
+
       for (const cid of createdIds) {
         await Issue.findByIdAndDelete(cid);
       }
-      await User.deleteOne({ email: testCitizenEmail });
+      await Notification.deleteMany({
+        $or: [
+          { issue: { $in: createdIds } },
+          { recipient: waterAdmin._id },
+        ],
+      });
+      await User.deleteMany({
+        email: { $in: [testCitizenEmail, testCitizen2Email, unrelatedAdminEmail] },
+      });
     } else {
       console.log('  ℹ️ MongoDB not connected; skipping DB E2E assertions.');
     }

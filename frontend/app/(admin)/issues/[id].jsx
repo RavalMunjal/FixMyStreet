@@ -15,6 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
+import { useNotifications } from '../../../context/NotificationContext';
 import Header from '../../../components/Header';
 import Badge from '../../../components/Badge';
 import Card from '../../../components/Card';
@@ -39,6 +40,7 @@ try {
 export default function AdminIssueReviewScreen() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
+  const { fetchNotifications } = useNotifications();
 
   const [issue, setIssue] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -148,6 +150,7 @@ export default function AdminIssueReviewScreen() {
 
       setResolutionAsset(null);
       await fetchIssue();
+      fetchNotifications(true);
 
       Alert.alert(
         'Saved in MongoDB',

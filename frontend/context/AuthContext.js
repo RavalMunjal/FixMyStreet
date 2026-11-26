@@ -9,6 +9,11 @@ export const AuthProvider = ({ children }) => {
   const [token, setToken] = useState(null);
   // isLoading strictly tracks initial session restoration so login/register errors do not re-trigger root guards
   const [isLoading, setIsLoading] = useState(true);
+  const beforeLogoutHookRef = React.useRef(null);
+
+  const setBeforeLogoutHook = useCallback((fn) => {
+    beforeLogoutHookRef.current = fn;
+  }, []);
 
   const clearSession = useCallback(async () => {
     try {
@@ -101,6 +106,13 @@ export const AuthProvider = ({ children }) => {
   };
 
   const logout = async () => {
+    if (beforeLogoutHookRef.current) {
+      try {
+        await beforeLogoutHookRef.current();
+      } catch (e) {
+        console.warn('Pre-logout hook failed:', e.message);
+      }
+    }
     await clearSession();
   };
 
@@ -129,6 +141,7 @@ export const AuthProvider = ({ children }) => {
         logout,
         refreshUser,
         checkAuthSession,
+        setBeforeLogoutHook,
       }}
     >
       {children}

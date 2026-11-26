@@ -16,6 +16,7 @@ import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
+import { useNotifications } from '../../context/NotificationContext';
 import Header from '../../components/Header';
 import Input from '../../components/Input';
 import Button from '../../components/Button';
@@ -26,6 +27,7 @@ import { COLORS, SPACING, FONT_SIZE, RADIUS } from '../../constants/theme';
 
 export default function ReportIssueScreen() {
   const router = useRouter();
+  const { fetchNotifications } = useNotifications();
 
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState(CATEGORIES[0].id);
@@ -307,6 +309,7 @@ export default function ReportIssueScreen() {
       }
 
       resetForm();
+      fetchNotifications(true);
 
       Alert.alert(
         'Complaint Submitted!',

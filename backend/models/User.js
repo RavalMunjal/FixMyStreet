@@ -25,7 +25,7 @@ const userSchema = new mongoose.Schema(
       type: String,
       required: [true, 'Please provide a password'],
       minlength: [6, 'Password must be at least 6 characters long'],
-      select: false, // Never return password hash by default
+      select: false,
     },
     role: {
       type: String,
@@ -35,18 +35,36 @@ const userSchema = new mongoose.Schema(
       },
       default: 'citizen',
     },
+    // Optional admin responsibility scoping (empty = general municipal admin)
+    organization: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    assignedCategories: {
+      type: [String],
+      default: [],
+    },
+    assignedArea: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    // Registered Expo push tokens for multi-device notifications
+    pushTokens: {
+      type: [String],
+      default: [],
+    },
   },
   {
     timestamps: true,
   }
 );
 
-// Method to verify entered password against stored bcrypt hash
 userSchema.methods.comparePassword = async function (enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.passwordHash);
 };
 
-// Static helper to hash password
 userSchema.statics.hashPassword = async function (password) {
   const salt = await bcrypt.genSalt(10);
   return await bcrypt.hash(password, salt);

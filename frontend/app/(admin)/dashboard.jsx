@@ -12,9 +12,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
+import { useNotifications } from '../../context/NotificationContext';
 import { adminService } from '../../services/api';
 import Card from '../../components/Card';
 import Badge from '../../components/Badge';
+import NotificationBell from '../../components/NotificationBell';
 import Loading from '../../components/Loading';
 import EmptyState from '../../components/EmptyState';
 import { COLORS, SPACING, FONT_SIZE, RADIUS } from '../../constants/theme';
@@ -22,6 +24,7 @@ import { COLORS, SPACING, FONT_SIZE, RADIUS } from '../../constants/theme';
 export default function AdminDashboard() {
   const router = useRouter();
   const { user } = useAuth();
+  const { refreshUnreadCount } = useNotifications();
 
   const [stats, setStats] = useState({
     total: 0,
@@ -58,7 +61,8 @@ export default function AdminDashboard() {
   useFocusEffect(
     useCallback(() => {
       fetchDashboard();
-    }, [fetchDashboard])
+      refreshUnreadCount();
+    }, [fetchDashboard, refreshUnreadCount])
   );
 
   const onRefresh = () => {
@@ -97,12 +101,15 @@ export default function AdminDashboard() {
               {user?.name || 'Admin'}
             </Text>
           </View>
-          <TouchableOpacity
-            style={styles.profileBadge}
-            onPress={() => router.push('/(admin)/profile')}
-          >
-            <Ionicons name="settings-outline" size={20} color={COLORS.secondary} />
-          </TouchableOpacity>
+          <View style={styles.headerActions}>
+            <NotificationBell />
+            <TouchableOpacity
+              style={styles.profileBadge}
+              onPress={() => router.push('/(admin)/profile')}
+            >
+              <Ionicons name="settings-outline" size={20} color={COLORS.secondary} />
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Real MongoDB Database Metrics Grid */}
@@ -259,6 +266,11 @@ const styles = StyleSheet.create({
   headerTextCol: {
     flex: 1,
     marginRight: SPACING.sm,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.xs + 2,
   },
   adminBadge: {
     flexDirection: 'row',

@@ -197,6 +197,41 @@ export const adminService = {
   },
 };
 
+// ================= NOTIFICATION SERVICE =================
+export const notificationService = {
+  async getAll(params = {}) {
+    const res = await api.get('/notifications', { params });
+    return res.data;
+  },
+
+  async getUnreadCount() {
+    const res = await api.get('/notifications/unread-count');
+    return res.data;
+  },
+
+  async markAsRead(id) {
+    const res = await api.patch(`/notifications/${id}/read`);
+    return res.data;
+  },
+
+  async markAllAsRead() {
+    const res = await api.patch('/notifications/read-all');
+    return res.data;
+  },
+
+  async registerPushToken(token) {
+    const res = await api.post('/notifications/push-token', { token });
+    return res.data;
+  },
+
+  async unregisterPushToken(token) {
+    const res = await api.delete('/notifications/push-token', {
+      data: { token },
+    });
+    return res.data;
+  },
+};
+
 // ================= UPLOAD SERVICE =================
 const normalizeMimeAndName = (imageInput) => {
   const isAssetObj = typeof imageInput === 'object' && imageInput !== null;

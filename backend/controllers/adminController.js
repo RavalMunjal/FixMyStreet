@@ -2,6 +2,7 @@ const User = require('../models/User');
 const Issue = require('../models/Issue');
 const { ISSUE_STATUSES, URGENCY_LEVELS } = require('../models/Issue');
 const { checkDB, escapeRegex, parsePagination } = require('../utils/helpers');
+const { createAndSendNotification } = require('../utils/notificationService');
 
 // @desc    Get admin dashboard metrics & counts
 // @route   GET /api/admin/dashboard
@@ -197,6 +198,32 @@ const updateIssueStatus = async (req, res, next) => {
       .populate('reportedBy', 'name email role')
       .populate('statusHistory.updatedBy', 'name email role');
 
+    // Event B & Event C: Notify citizen after status change persists in MongoDB
+    const reporterId = populated?.reportedBy?._id || issue.reportedBy;
+    if (status === 'Resolved') {
+      await createAndSendNotification({
+        recipientId: reporterId,
+        senderId: req.user._id,
+        issueId: issue._id,
+        type: 'ISSUE_RESOLVED',
+        title: 'Your Issue Has Been Resolved',
+        message: issue.resolutionImageUrl
+          ? `Your reported issue ${issue.title} has been marked as resolved. Open details to review the resolution proof.`
+          : `Your reported issue ${issue.title} has been marked as resolved.`,
+        targetRole: 'citizen',
+      });
+    } else if (previousStatus !== status) {
+      await createAndSendNotification({
+        recipientId: reporterId,
+        senderId: req.user._id,
+        issueId: issue._id,
+        type: 'STATUS_UPDATED',
+        title: 'Issue Status Updated',
+        message: `Your complaint ${issue.title} has been updated to ${status}.`,
+        targetRole: 'citizen',
+      });
+    }
+
     res.status(200).json({
       success: true,
       message: `Complaint status updated to ${status}`,
@@ -301,6 +328,20 @@ const resolveIssue = async (req, res, next) => {
     const populated = await Issue.findById(issue._id)
       .populate('reportedBy', 'name email role')
       .populate('statusHistory.updatedBy', 'name email role');
+
+    // Event C: Complaint resolved notification
+    const reporterId = populated?.reportedBy?._id || issue.reportedBy;
+    await createAndSendNotification({
+      recipientId: reporterId,
+      senderId: req.user._id,
+      issueId: issue._id,
+      type: 'ISSUE_RESOLVED',
+      title: 'Your Issue Has Been Resolved',
+      message: issue.resolutionImageUrl
+        ? `Your reported issue ${issue.title} has been marked as resolved. Open details to review the resolution proof.`
+        : `Your reported issue ${issue.title} has been marked as resolved.`,
+      targetRole: 'citizen',
+    });
 
     res.status(200).json({
       success: true,

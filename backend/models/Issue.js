@@ -146,6 +146,11 @@ const issueSchema = new mongoose.Schema(
       ref: 'User',
       required: [true, 'Complaint must be associated with a user'],
     },
+    organization: {
+      type: String,
+      default: '',
+      trim: true,
+    },
     adminNote: {
       type: String,
       default: '',

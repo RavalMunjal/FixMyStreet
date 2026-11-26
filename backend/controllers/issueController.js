@@ -1,6 +1,10 @@
 const Issue = require('../models/Issue');
 const { URGENCY_LEVELS } = require('../models/Issue');
 const { checkDB, escapeRegex, parsePagination } = require('../utils/helpers');
+const {
+  createAndSendNotification,
+  findResponsibleAdminsForIssue,
+} = require('../utils/notificationService');
 
 const parseValidCoordinates = (latitude, longitude) => {
   if (
@@ -189,6 +193,7 @@ const createIssue = async (req, res, next) => {
       latitude,
       longitude,
       address,
+      organization,
       requestedUrgency = 'Normal',
     } = req.body;
 
@@ -244,6 +249,7 @@ const createIssue = async (req, res, next) => {
       supporters: [],
       supportCount: 0,
       reportedBy: req.user._id,
+      organization: organization ? String(organization).trim() : '',
       statusHistory: [
         {
           status: 'Reported',
@@ -261,6 +267,34 @@ const createIssue = async (req, res, next) => {
     const populatedIssue = await Issue.findById(issue._id).populate(
       'reportedBy',
       'name email'
+    );
+
+    // Event A: Create notifications ONLY after issue is persisted in MongoDB
+    await createAndSendNotification({
+      recipientId: req.user._id,
+      senderId: req.user._id,
+      issueId: issue._id,
+      type: 'ISSUE_SUBMITTED',
+      title: 'Report Submitted Successfully',
+      message: `Your issue ${issue.title} has been submitted. Track its progress in My Issues.`,
+      dedupeKey: `submitted:${issue._id}`,
+      targetRole: 'citizen',
+    });
+
+    const responsibleAdmins = await findResponsibleAdminsForIssue(issue);
+    await Promise.all(
+      responsibleAdmins.map((adminUser) =>
+        createAndSendNotification({
+          recipientId: adminUser._id,
+          senderId: req.user._id,
+          issueId: issue._id,
+          type: 'NEW_ISSUE_ADMIN',
+          title: 'New Issue Reported',
+          message: `A new ${issue.category} issue has been reported in your assigned area.`,
+          dedupeKey: `new_issue_admin:${issue._id}:${adminUser._id}`,
+          targetRole: 'admin',
+        })
+      )
     );
 
     res.status(201).json({
@@ -442,6 +476,24 @@ const supportIssue = async (req, res, next) => {
     if (updatedIssue.supportCount !== updatedIssue.supporters.length) {
       updatedIssue.supportCount = updatedIssue.supporters.length;
       await updatedIssue.save();
+    }
+
+    // Event D: Notify original reporter when another citizen supports (deduped)
+    const reporterId =
+      updatedIssue.reportedBy?._id?.toString() ||
+      updatedIssue.reportedBy?.toString();
+    if (reporterId && reporterId !== userId.toString()) {
+      await createAndSendNotification({
+        recipientId: reporterId,
+        senderId: userId,
+        issueId: updatedIssue._id,
+        type: 'ISSUE_SUPPORTED',
+        title: 'Someone Supported Your Report',
+        message: `Another citizen supported your issue ${updatedIssue.title}.`,
+        dedupeKey: `support:${updatedIssue._id}:${userId}`,
+        priority: 'normal',
+        targetRole: 'citizen',
+      });
     }
 
     res.status(200).json({
