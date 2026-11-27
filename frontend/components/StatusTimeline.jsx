@@ -4,25 +4,26 @@ import { Ionicons } from '@expo/vector-icons';
 import { STATUSES, normalizeStatusLabel } from '../constants/categories';
 import { COLORS, SPACING, FONT_SIZE, RADIUS } from '../constants/theme';
 
-const getStageColor = (stageId, isReached) => {
-  if (!isReached) return COLORS.borderDark;
-  switch (stageId) {
-    case 'Under Review':
-      return COLORS.underReview;
-    case 'In Progress':
-      return COLORS.inProgress;
-    case 'Resolved':
-      return COLORS.resolved;
-    default:
-      return COLORS.pending;
-  }
+const STAGE_COLORS = {
+  Reported: COLORS.pending,
+  'Under Review': COLORS.underReview,
+  'In Progress': COLORS.inProgress,
+  Resolved: COLORS.resolved,
+};
+
+const getActorLabel = (entry) => {
+  const actorRole = entry?.updatedByRole || entry?.updatedBy?.role;
+  const actorName = entry?.updatedBy?.name;
+  const roleLabel = actorRole === 'admin' ? 'Admin' : 'Citizen';
+
+  if (actorName) return `${roleLabel} (${actorName})`;
+  if (actorRole === 'admin') return 'Municipal Admin';
+  if (actorRole === 'citizen') return 'Citizen';
+  return null;
 };
 
 export default function StatusTimeline({ statusHistory = [], currentStatus }) {
   const normalizedCurrent = normalizeStatusLabel(currentStatus);
-
-  // Index real history entries by normalized status (keep most recent entry per stage for stage view,
-  // and preserve chronological log below if multiple updates happened)
   const historyList = Array.isArray(statusHistory) ? statusHistory : [];
 
   const getEntryForStage = (stageId) => {
@@ -39,18 +40,12 @@ export default function StatusTimeline({ statusHistory = [], currentStatus }) {
         const isCurrent = normalizedCurrent === stage.id;
         const isReached = Boolean(entry) || isCurrent;
         const isLast = index === STATUSES.length - 1;
-        const stageColor = getStageColor(stage.id, isReached);
+        const stageColor = isReached
+          ? STAGE_COLORS[stage.id] || COLORS.pending
+          : COLORS.borderDark;
 
         const dateObj = entry?.updatedAt ? new Date(entry.updatedAt) : null;
-        const actorRole = entry?.updatedByRole || entry?.updatedBy?.role;
-        const actorName = entry?.updatedBy?.name;
-        const actorLabel = actorName
-          ? `${actorRole === 'admin' ? 'Admin' : 'Citizen'} (${actorName})`
-          : actorRole === 'admin'
-            ? 'Municipal Admin'
-            : actorRole === 'citizen'
-              ? 'Citizen'
-              : null;
+        const actorLabel = getActorLabel(entry);
 
         return (
           <View key={stage.id} style={styles.stepRow}>

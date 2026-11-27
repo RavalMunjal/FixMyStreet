@@ -212,6 +212,59 @@ export default function NotificationsView({ role = 'citizen' }) {
     );
   };
 
+  const renderBody = () => {
+    if (loading && !refreshing && notifications.length === 0) {
+      return <Loading message="Loading notifications..." fullScreen />;
+    }
+
+    if (error) {
+      return (
+        <View style={styles.errorBox}>
+          <Ionicons name="alert-circle-outline" size={40} color={COLORS.danger} />
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity
+            onPress={() => fetchNotifications(false)}
+            style={[styles.retryBtn, { backgroundColor: accentColor }]}
+          >
+            <Text style={styles.retryText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    return (
+      <FlatList
+        data={notifications}
+        keyExtractor={(item) => item._id}
+        renderItem={renderItem}
+        contentContainerStyle={[
+          styles.listContent,
+          {
+            paddingBottom: Math.max(insets.bottom, SPACING.md) + SPACING.xl,
+          },
+        ]}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[accentColor]}
+          />
+        }
+        ListEmptyComponent={
+          <EmptyState
+            icon="notifications-outline"
+            title="No Notifications Yet"
+            description={
+              role === 'admin'
+                ? 'New street issue alerts will appear here when citizens report problems.'
+                : 'You will receive alerts here when you report issues or admins update your complaint status.'
+            }
+          />
+        }
+      />
+    );
+  };
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'bottom', 'left', 'right']}>
       <Header
@@ -256,50 +309,7 @@ export default function NotificationsView({ role = 'citizen' }) {
         </View>
       ) : null}
 
-      {loading && !refreshing && notifications.length === 0 ? (
-        <Loading message="Loading notifications..." fullScreen />
-      ) : error ? (
-        <View style={styles.errorBox}>
-          <Ionicons name="alert-circle-outline" size={40} color={COLORS.danger} />
-          <Text style={styles.errorText}>{error}</Text>
-          <TouchableOpacity
-            onPress={() => fetchNotifications(false)}
-            style={[styles.retryBtn, { backgroundColor: accentColor }]}
-          >
-            <Text style={styles.retryText}>Retry</Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
-        <FlatList
-          data={notifications}
-          keyExtractor={(item) => item._id}
-          renderItem={renderItem}
-          contentContainerStyle={[
-            styles.listContent,
-            {
-              paddingBottom: Math.max(insets.bottom, SPACING.md) + SPACING.xl,
-            },
-          ]}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              colors={[accentColor]}
-            />
-          }
-          ListEmptyComponent={
-            <EmptyState
-              icon="notifications-outline"
-              title="No Notifications Yet"
-              description={
-                role === 'admin'
-                  ? 'New street issue alerts will appear here when citizens report problems.'
-                  : 'You will receive alerts here when you report issues or admins update your complaint status.'
-              }
-            />
-          }
-        />
-      )}
+      {renderBody()}
     </SafeAreaView>
   );
 }

@@ -3,6 +3,35 @@ import { View, Text, StyleSheet } from 'react-native';
 import { COLORS, RADIUS, SPACING, FONT_SIZE } from '../constants/theme';
 import { normalizeStatusLabel } from '../constants/categories';
 
+const DEFAULT_COLORS = {
+  bg: COLORS.surfaceAlt,
+  text: COLORS.textSecondary,
+  border: COLORS.border,
+};
+
+const STATUS_COLORS = {
+  Reported: {
+    bg: COLORS.pendingBg,
+    text: COLORS.pending,
+    border: COLORS.pendingBorder,
+  },
+  'Under Review': {
+    bg: COLORS.underReviewBg,
+    text: COLORS.underReview,
+    border: COLORS.underReviewBorder,
+  },
+  'In Progress': {
+    bg: COLORS.inProgressBg,
+    text: COLORS.inProgress,
+    border: COLORS.inProgressBorder,
+  },
+  Resolved: {
+    bg: COLORS.resolvedBg,
+    text: COLORS.resolved,
+    border: COLORS.resolvedBorder,
+  },
+};
+
 export default function Badge({
   label,
   status, // 'Reported' | 'Under Review' | 'In Progress' | 'Resolved' | 'Pending'
@@ -11,71 +40,29 @@ export default function Badge({
   size = 'md', // 'sm' | 'md'
   style,
 }) {
-  const getStyles = () => {
-    if (urgency) {
-      if (urgency === 'High') {
-        return {
-          bg: COLORS.dangerBg,
-          text: COLORS.danger,
-          border: COLORS.dangerBorder,
-        };
-      }
+  const getBadgeColors = () => {
+    if (urgency === 'High') {
       return {
-        bg: COLORS.surfaceAlt,
-        text: COLORS.textSecondary,
-        border: COLORS.border,
+        bg: COLORS.dangerBg,
+        text: COLORS.danger,
+        border: COLORS.dangerBorder,
       };
     }
-
-    if (category) {
-      return {
-        bg: COLORS.surfaceAlt,
-        text: COLORS.textSecondary,
-        border: COLORS.border,
-      };
+    if (urgency || category) {
+      return DEFAULT_COLORS;
     }
-
-    const displayStatus = normalizeStatusLabel(status);
-    switch (displayStatus) {
-      case 'Reported':
-        return {
-          bg: COLORS.pendingBg,
-          text: COLORS.pending,
-          border: COLORS.pendingBorder,
-        };
-      case 'Under Review':
-        return {
-          bg: COLORS.underReviewBg,
-          text: COLORS.underReview,
-          border: COLORS.underReviewBorder,
-        };
-      case 'In Progress':
-        return {
-          bg: COLORS.inProgressBg,
-          text: COLORS.inProgress,
-          border: COLORS.inProgressBorder,
-        };
-      case 'Resolved':
-        return {
-          bg: COLORS.resolvedBg,
-          text: COLORS.resolved,
-          border: COLORS.resolvedBorder,
-        };
-      default:
-        return {
-          bg: COLORS.surfaceAlt,
-          text: COLORS.textSecondary,
-          border: COLORS.border,
-        };
-    }
+    return STATUS_COLORS[normalizeStatusLabel(status)] || DEFAULT_COLORS;
   };
 
-  const badgeColors = getStyles();
-  const displayText =
-    label ||
-    (urgency ? `${urgency} Urgency` : null) ||
-    (status ? normalizeStatusLabel(status) : null) ||
-    category;
+  const getBadgeText = () => {
+    if (label) return label;
+    if (urgency) return `${urgency} Urgency`;
+    if (status) return normalizeStatusLabel(status);
+    return category;
+  };
+
+  const badgeColors = getBadgeColors();
+  const displayText = getBadgeText();
 
   return (
     <View

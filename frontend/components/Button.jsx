@@ -20,30 +20,18 @@ export default function Button({
   style,
   textStyle,
 }) {
-  const getContainerStyle = () => {
-    switch (variant) {
-      case 'secondary':
-        return styles.secondaryBtn;
-      case 'outline':
-        return styles.outlineBtn;
-      case 'danger':
-        return styles.dangerBtn;
-      default:
-        return styles.primaryBtn;
-    }
+  const containerByVariant = {
+    primary: styles.primaryBtn,
+    secondary: styles.secondaryBtn,
+    outline: styles.outlineBtn,
+    danger: styles.dangerBtn,
   };
 
-  const getTextStyle = () => {
-    switch (variant) {
-      case 'secondary':
-        return styles.secondaryText;
-      case 'outline':
-        return styles.outlineText;
-      case 'danger':
-        return styles.dangerText;
-      default:
-        return styles.primaryText;
-    }
+  const textByVariant = {
+    primary: styles.primaryText,
+    secondary: styles.secondaryText,
+    outline: styles.outlineText,
+    danger: styles.dangerText,
   };
 
   const isDisabled = disabled || loading;
@@ -55,7 +43,7 @@ export default function Button({
       disabled={isDisabled}
       style={[
         styles.baseBtn,
-        getContainerStyle(),
+        containerByVariant[variant] || styles.primaryBtn,
         isDisabled && styles.disabledBtn,
         style,
       ]}
@@ -75,7 +63,7 @@ export default function Button({
               style={styles.iconLeft}
             />
           )}
-          <Text style={[styles.baseText, getTextStyle(), textStyle]}>
+          <Text style={[styles.baseText, textByVariant[variant] || styles.primaryText, textStyle]}>
             {title}
           </Text>
           {icon && iconPosition === 'right' && (
