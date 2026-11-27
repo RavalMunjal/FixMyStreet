@@ -18,44 +18,63 @@ const isPlaceholderValue = (value) => {
   );
 };
 
+// Read uploaded image bytes from either multipart file or JSON base64 payload
+const extractImageBuffer = (req) => {
+  if (req.file) {
+    return {
+      buffer: req.file.buffer,
+      mimeType: (req.file.mimetype || 'image/jpeg').toLowerCase(),
+    };
+  }
+
+  if (!req.body?.base64) {
+    return { errorStatus: 400, errorMessage: 'No image file was provided for upload' };
+  }
+
+  let rawBase64 = String(req.body.base64).trim();
+  let mimeType = req.body.mimeType
+    ? String(req.body.mimeType).toLowerCase()
+    : 'image/jpeg';
+
+  const dataUrlMatch = /^data:(image\/[a-zA-Z0-9+.-]+);base64,(.+)$/.exec(rawBase64);
+  if (dataUrlMatch) {
+    mimeType = dataUrlMatch[1].toLowerCase();
+    rawBase64 = dataUrlMatch[2];
+  }
+
+  if (!ALLOWED_MIME_TYPES.includes(mimeType)) {
+    return {
+      errorStatus: 400,
+      errorMessage: `Invalid file type (${mimeType}). Only JPEG, JPG, PNG, and WEBP images are accepted.`,
+    };
+  }
+
+  const buffer = Buffer.from(rawBase64, 'base64');
+  if (buffer.length > 5 * 1024 * 1024) {
+    return {
+      errorStatus: 400,
+      errorMessage: 'Image size exceeds maximum limit of 5MB',
+    };
+  }
+
+  return { buffer, mimeType };
+};
+
 // @desc    Upload an image (supports multipart/form-data OR JSON base64 fallback)
 // @route   POST /api/uploads/image
 // @access  Private
 const uploadImage = async (req, res) => {
   try {
-    let imageBuffer = null;
-    let mimeType = 'image/jpeg';
-
-    if (req.file) {
-      imageBuffer = req.file.buffer;
-      mimeType = (req.file.mimetype || 'image/jpeg').toLowerCase();
-    } else if (req.body && req.body.base64) {
-      let rawBase64 = String(req.body.base64).trim();
-      const dataUrlMatch = /^data:(image\/[a-zA-Z0-9+.-]+);base64,(.+)$/.exec(
-        rawBase64
-      );
-      if (dataUrlMatch) {
-        mimeType = dataUrlMatch[1].toLowerCase();
-        rawBase64 = dataUrlMatch[2];
-      } else if (req.body.mimeType) {
-        mimeType = String(req.body.mimeType).toLowerCase();
-      }
-
-      if (!ALLOWED_MIME_TYPES.includes(mimeType)) {
-        return res.status(400).json({
-          success: false,
-          message: `Invalid file type (${mimeType}). Only JPEG, JPG, PNG, and WEBP images are accepted.`,
-        });
-      }
-
-      imageBuffer = Buffer.from(rawBase64, 'base64');
-      if (imageBuffer.length > 5 * 1024 * 1024) {
-        return res.status(400).json({
-          success: false,
-          message: 'Image size exceeds maximum limit of 5MB',
-        });
-      }
+    const parsed = extractImageBuffer(req);
+    if (parsed.errorStatus) {
+      return res.status(parsed.errorStatus).json({
+        success: false,
+        message: parsed.errorMessage,
+      });
     }
+
+    const imageBuffer = parsed.buffer;
+    let mimeType = parsed.mimeType;
 
     if (!imageBuffer || imageBuffer.length === 0) {
       return res.status(400).json({

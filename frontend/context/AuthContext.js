@@ -69,13 +69,9 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const login = async (email, password) => {
-    const res = await authService.login(email, password);
-    const receivedToken = res?.data?.token;
-    const receivedUser = res?.data?.user;
-
+  const saveSession = async (receivedToken, receivedUser, actionName) => {
     if (!receivedToken || !receivedUser) {
-      throw new Error('Invalid login response received from server.');
+      throw new Error(`Invalid ${actionName} response received from server.`);
     }
 
     await tokenStorage.setToken(receivedToken);
@@ -87,22 +83,14 @@ export const AuthProvider = ({ children }) => {
     return { success: true, user: receivedUser };
   };
 
+  const login = async (email, password) => {
+    const res = await authService.login(email, password);
+    return saveSession(res?.data?.token, res?.data?.user, 'login');
+  };
+
   const register = async (name, email, password, confirmPassword) => {
     const res = await authService.register(name, email, password, confirmPassword);
-    const receivedToken = res?.data?.token;
-    const receivedUser = res?.data?.user;
-
-    if (!receivedToken || !receivedUser) {
-      throw new Error('Invalid registration response received from server.');
-    }
-
-    await tokenStorage.setToken(receivedToken);
-    await tokenStorage.setUser(receivedUser);
-
-    setToken(receivedToken);
-    setUser(receivedUser);
-
-    return { success: true, user: receivedUser };
+    return saveSession(res?.data?.token, res?.data?.user, 'registration');
   };
 
   const logout = async () => {

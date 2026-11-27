@@ -18,24 +18,16 @@ const getProfile = async (req, res, next) => {
       });
     }
 
-    const totalComplaints = await Issue.countDocuments({
-      reportedBy: user._id,
-    });
-
-    const pendingCount = await Issue.countDocuments({
-      reportedBy: user._id,
-      status: 'Pending',
-    });
-
-    const inProgressCount = await Issue.countDocuments({
-      reportedBy: user._id,
-      status: 'In Progress',
-    });
-
-    const resolvedCount = await Issue.countDocuments({
-      reportedBy: user._id,
-      status: 'Resolved',
-    });
+    const [totalComplaints, pendingCount, inProgressCount, resolvedCount] =
+      await Promise.all([
+        Issue.countDocuments({ reportedBy: user._id }),
+        Issue.countDocuments({
+          reportedBy: user._id,
+          status: { $in: ['Reported', 'Under Review', 'Pending'] },
+        }),
+        Issue.countDocuments({ reportedBy: user._id, status: 'In Progress' }),
+        Issue.countDocuments({ reportedBy: user._id, status: 'Resolved' }),
+      ]);
 
     res.status(200).json({
       success: true,

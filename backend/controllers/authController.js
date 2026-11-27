@@ -2,6 +2,15 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const { checkDB } = require('../utils/helpers');
 
+// Format safe public user fields without passwordHash
+const formatUser = (user) => ({
+  _id: user._id,
+  name: user.name,
+  email: user.email,
+  role: user.role,
+  createdAt: user.createdAt,
+});
+
 // Helper to generate JWT
 const generateToken = (id, role) => {
   return jwt.sign(
@@ -72,13 +81,7 @@ const register = async (req, res, next) => {
       message: 'Registration successful! Welcome to FixMyStreet.',
       data: {
         token,
-        user: {
-          _id: user._id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          createdAt: user.createdAt,
-        },
+        user: formatUser(user),
       },
     });
   } catch (error) {
@@ -132,13 +135,7 @@ const login = async (req, res, next) => {
       message: 'Login successful',
       data: {
         token,
-        user: {
-          _id: user._id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          createdAt: user.createdAt,
-        },
+        user: formatUser(user),
       },
     });
   } catch (error) {
@@ -156,13 +153,7 @@ const getMe = async (req, res, next) => {
       success: true,
       message: 'Authenticated user profile retrieved',
       data: {
-        user: {
-          _id: user._id,
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          createdAt: user.createdAt,
-        },
+        user: formatUser(user),
       },
     });
   } catch (error) {

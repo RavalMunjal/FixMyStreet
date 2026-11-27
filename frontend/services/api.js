@@ -34,36 +34,41 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
+const STATUS_ERROR_MESSAGES = {
+  401: 'Session expired or unauthorized. Please log in.',
+  403: 'Access forbidden: You do not have permission for this action.',
+  404: 'Requested resource not found.',
+};
+
+const extractErrorMessage = (error) => {
+  if (error.response) {
+    if (error.response.data?.message) return error.response.data.message;
+    if (error.response.status >= 500) return 'Server error. Please try again later.';
+    return (
+      STATUS_ERROR_MESSAGES[error.response.status] ||
+      'An unexpected error occurred. Please try again.'
+    );
+  }
+  if (error.code === 'ECONNABORTED') {
+    return `Request timed out connecting to ${API_BASE_URL}. Please check your server.`;
+  }
+  if (error.request) {
+    return `Cannot connect to FixMyStreet server (${API_BASE_URL}). Verify PC & phone are on the same Wi-Fi and backend is running.`;
+  }
+  return 'An unexpected error occurred. Please try again.';
+};
+
 // Response Interceptor: centralized error extraction & 401 session cleanup
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    let message = 'An unexpected error occurred. Please try again.';
+    const message = extractErrorMessage(error);
+    const reqUrl = error.config?.url || '';
+    const isAuthEndpoint =
+      reqUrl.includes('/auth/login') || reqUrl.includes('/auth/register');
 
-    if (error.response) {
-      if (error.response.data && error.response.data.message) {
-        message = error.response.data.message;
-      } else if (error.response.status === 401) {
-        message = 'Session expired or unauthorized. Please log in.';
-      } else if (error.response.status === 403) {
-        message = 'Access forbidden: You do not have permission for this action.';
-      } else if (error.response.status === 404) {
-        message = 'Requested resource not found.';
-      } else if (error.response.status >= 500) {
-        message = 'Server error. Please try again later.';
-      }
-
-      // Trigger automatic logout on expired/invalid JWT for authenticated routes
-      const reqUrl = error.config?.url || '';
-      const isAuthEndpoint =
-        reqUrl.includes('/auth/login') || reqUrl.includes('/auth/register');
-      if (error.response.status === 401 && !isAuthEndpoint && unauthorizedHandler) {
-        unauthorizedHandler();
-      }
-    } else if (error.code === 'ECONNABORTED') {
-      message = `Request timed out connecting to ${API_BASE_URL}. Please check your server.`;
-    } else if (error.request) {
-      message = `Cannot connect to FixMyStreet server (${API_BASE_URL}). Verify PC & phone are on the same Wi-Fi and backend is running.`;
+    if (error.response?.status === 401 && !isAuthEndpoint && unauthorizedHandler) {
+      unauthorizedHandler();
     }
 
     const enhancedError = new Error(message);
