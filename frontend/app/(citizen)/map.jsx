@@ -260,17 +260,35 @@ export default function NearbyMapScreen() {
     />
   );
 
+  const getHeaderSubtitle = () => {
+    if (radiusKm === 'all') return `${issues.length} public street reports`;
+    if (searchCenter) return `${issues.length} reports within ${radiusKm} km`;
+    return `${issues.length} street reports`;
+  };
+
+  const getEmptyMapMessage = () => {
+    if (searchCenter && radiusKm !== 'all') {
+      return `No issues within ${radiusKm} km. Try All or Set Pin.`;
+    }
+    return 'No complaints plotted yet.';
+  };
+
+  const getMarkerDateText = (issue) => {
+    const dist =
+      typeof issue.distanceKm === 'number'
+        ? `${issue.distanceKm.toFixed(2)} km away • `
+        : '';
+    const datePart = issue.createdAt
+      ? `Reported: ${new Date(issue.createdAt).toLocaleDateString()}`
+      : 'Mapped Location';
+    return `${dist}${datePart}`;
+  };
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <Header
         title="Nearby Issues"
-        subtitle={
-          radiusKm === 'all'
-            ? `${issues.length} public street reports`
-            : searchCenter
-            ? `${issues.length} reports within ${radiusKm} km`
-            : `${issues.length} street reports`
-        }
+        subtitle={getHeaderSubtitle()}
         rightComponent={
           <View style={styles.viewToggle}>
             <TouchableOpacity
@@ -520,11 +538,7 @@ export default function NearbyMapScreen() {
           {!loadingIssues && !locating && !selectedIssue && issues.length === 0 ? (
             <View style={styles.emptyMapPill}>
               <Ionicons name="information-circle-outline" size={16} color={COLORS.primary} />
-              <Text style={styles.emptyMapPillText}>
-                {searchCenter && radiusKm !== 'all'
-                  ? `No issues within ${radiusKm} km. Try All or Set Pin.`
-                  : 'No complaints plotted yet.'}
-              </Text>
+              <Text style={styles.emptyMapPillText}>{getEmptyMapMessage()}</Text>
             </View>
           ) : null}
 
@@ -559,12 +573,7 @@ export default function NearbyMapScreen() {
                     {selectedIssue.title}
                   </Text>
                   <Text style={styles.distanceText}>
-                    {typeof selectedIssue.distanceKm === 'number'
-                      ? `${selectedIssue.distanceKm.toFixed(2)} km away • `
-                      : ''}
-                    {selectedIssue.createdAt
-                      ? `Reported: ${new Date(selectedIssue.createdAt).toLocaleDateString()}`
-                      : 'Mapped Location'}
+                    {getMarkerDateText(selectedIssue)}
                   </Text>
                   <Text style={styles.previewAddress} numberOfLines={1}>
                     {selectedIssue.address ||

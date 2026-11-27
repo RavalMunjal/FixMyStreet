@@ -127,6 +127,18 @@ export default function IssueDetailsScreen() {
     Number(issue.longitude)
   );
 
+  const renderUrgencyBadge = () => {
+    if (issue.confirmedUrgency === 'High') {
+      return <Badge urgency="High" size="sm" label="Confirmed High Urgency" />;
+    }
+    if (issue.requestedUrgency === 'High') {
+      return (
+        <Badge urgency="High" size="sm" label="Requested: High (Pending Review)" />
+      );
+    }
+    return <Badge urgency="Normal" size="sm" />;
+  };
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <Header
@@ -171,19 +183,7 @@ export default function IssueDetailsScreen() {
               currentUserId={user?._id}
               onUpdated={(updated) => setIssue(updated)}
             />
-            <View style={styles.urgencyPills}>
-              {issue.confirmedUrgency === 'High' ? (
-                <Badge urgency="High" size="sm" label="Confirmed High Urgency" />
-              ) : issue.requestedUrgency === 'High' ? (
-                <Badge
-                  urgency="High"
-                  size="sm"
-                  label="Requested: High (Pending Review)"
-                />
-              ) : (
-                <Badge urgency="Normal" size="sm" />
-              )}
-            </View>
+            <View style={styles.urgencyPills}>{renderUrgencyBadge()}</View>
           </View>
         </View>
 

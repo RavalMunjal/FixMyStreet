@@ -58,46 +58,55 @@ export default function MyComplaintsScreen() {
     />
   );
 
-  return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
-      <Header
-        title="My Complaints"
-        subtitle={`${myIssues.length} issues reported by you`}
-      />
+  const renderBody = () => {
+    if (loading && !refreshing) {
+      return <Loading message="Fetching your complaints history..." fullScreen />;
+    }
 
-      {loading && !refreshing ? (
-        <Loading message="Fetching your complaints history..." fullScreen />
-      ) : error ? (
+    if (error) {
+      return (
         <View style={styles.errorBox}>
           <Text style={styles.errorText}>{error}</Text>
           <TouchableOpacity onPress={fetchMyComplaints} style={styles.retryBtn}>
             <Text style={styles.retryText}>Retry</Text>
           </TouchableOpacity>
         </View>
-      ) : (
-        <FlatList
-          data={myIssues}
-          keyExtractor={(item) => item._id}
-          renderItem={renderItem}
-          contentContainerStyle={styles.listContent}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              colors={[COLORS.primary]}
-            />
-          }
-          ListEmptyComponent={
-            <EmptyState
-              icon="document-text-outline"
-              title="You Haven't Reported Any Issues"
-              description="Notice a pothole, broken streetlight, or garbage? File your first complaint today."
-              actionLabel="Report an Issue"
-              onAction={() => router.push('/(citizen)/report')}
-            />
-          }
-        />
-      )}
+      );
+    }
+
+    return (
+      <FlatList
+        data={myIssues}
+        keyExtractor={(item) => item._id}
+        renderItem={renderItem}
+        contentContainerStyle={styles.listContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[COLORS.primary]}
+          />
+        }
+        ListEmptyComponent={
+          <EmptyState
+            icon="document-text-outline"
+            title="You Haven't Reported Any Issues"
+            description="Notice a pothole, broken streetlight, or garbage? File your first complaint today."
+            actionLabel="Report an Issue"
+            onAction={() => router.push('/(citizen)/report')}
+          />
+        }
+      />
+    );
+  };
+
+  return (
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+      <Header
+        title="My Complaints"
+        subtitle={`${myIssues.length} issues reported by you`}
+      />
+      {renderBody()}
     </SafeAreaView>
   );
 }

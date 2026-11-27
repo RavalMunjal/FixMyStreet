@@ -81,6 +81,54 @@ export default function AdminIssuesScreen() {
     />
   );
 
+  const renderIssuesBody = () => {
+    if (loading && !refreshing) {
+      return <Loading message="Loading complaints..." fullScreen />;
+    }
+
+    if (error) {
+      return (
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity onPress={fetchIssues} style={styles.retryBtn}>
+            <Text style={styles.retryText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    return (
+      <FlatList
+        data={issues}
+        keyExtractor={(item) => item._id}
+        renderItem={renderItem}
+        contentContainerStyle={styles.listContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[COLORS.secondary]}
+          />
+        }
+        ListEmptyComponent={
+          <EmptyState
+            icon="search-outline"
+            title="No Complaints Found"
+            description="No issues match the selected filter criteria."
+            actionLabel="Clear Filters"
+            onAction={() => {
+              setSearch('');
+              setStatusFilter('All');
+              setCategoryFilter('All');
+              setUrgencyFilter('All');
+              setSortBy('newest');
+            }}
+          />
+        }
+      />
+    );
+  };
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <Header
@@ -212,45 +260,7 @@ export default function AdminIssuesScreen() {
       </View>
 
       {/* Issues List */}
-      {loading && !refreshing ? (
-        <Loading message="Loading complaints..." fullScreen />
-      ) : error ? (
-        <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>{error}</Text>
-          <TouchableOpacity onPress={fetchIssues} style={styles.retryBtn}>
-            <Text style={styles.retryText}>Retry</Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
-        <FlatList
-          data={issues}
-          keyExtractor={(item) => item._id}
-          renderItem={renderItem}
-          contentContainerStyle={styles.listContent}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              colors={[COLORS.secondary]}
-            />
-          }
-          ListEmptyComponent={
-            <EmptyState
-              icon="search-outline"
-              title="No Complaints Found"
-              description="No issues match the selected filter criteria."
-              actionLabel="Clear Filters"
-              onAction={() => {
-                setSearch('');
-                setStatusFilter('All');
-                setCategoryFilter('All');
-                setUrgencyFilter('All');
-                setSortBy('newest');
-              }}
-            />
-          }
-        />
-      )}
+      {renderIssuesBody()}
     </SafeAreaView>
   );
 }

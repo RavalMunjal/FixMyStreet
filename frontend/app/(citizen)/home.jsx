@@ -89,6 +89,39 @@ export default function HomeDashboard() {
     );
   };
 
+  const renderRecentIssues = () => {
+    if (error) {
+      return (
+        <View style={styles.errorBox}>
+          <Text style={styles.errorText}>{error}</Text>
+        </View>
+      );
+    }
+
+    if (recentIssues.length === 0) {
+      return (
+        <EmptyState
+          icon="construct-outline"
+          title="No Complaints Yet"
+          description="Your local area has no reported issues right now. Be the first to report!"
+          actionLabel="Report an Issue"
+          onAction={() => router.push('/(citizen)/report')}
+        />
+      );
+    }
+
+    return recentIssues.map((issue) => (
+      <IssueCard
+        key={issue._id}
+        issue={issue}
+        onPress={() => router.push(`/(citizen)/issues/${issue._id}`)}
+        showSupportButton
+        currentUserId={user?._id}
+        onIssueUpdated={handleIssueUpdated}
+      />
+    ));
+  };
+
   if (loading && !refreshing) {
     return (
       <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
@@ -213,30 +246,7 @@ export default function HomeDashboard() {
           </TouchableOpacity>
         </View>
 
-        {error ? (
-          <View style={styles.errorBox}>
-            <Text style={styles.errorText}>{error}</Text>
-          </View>
-        ) : recentIssues.length === 0 ? (
-          <EmptyState
-            icon="construct-outline"
-            title="No Complaints Yet"
-            description="Your local area has no reported issues right now. Be the first to report!"
-            actionLabel="Report an Issue"
-            onAction={() => router.push('/(citizen)/report')}
-          />
-        ) : (
-          recentIssues.map((issue) => (
-            <IssueCard
-              key={issue._id}
-              issue={issue}
-              onPress={() => router.push(`/(citizen)/issues/${issue._id}`)}
-              showSupportButton
-              currentUserId={user?._id}
-              onIssueUpdated={handleIssueUpdated}
-            />
-          ))
-        )}
+        {renderRecentIssues()}
       </ScrollView>
     </SafeAreaView>
   );

@@ -77,44 +77,53 @@ export default function AdminUsersScreen() {
     </Card>
   );
 
-  return (
-    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
-      <Header
-        title="Registered Citizens"
-        subtitle={`${users.length} active citizens registered`}
-      />
+  const renderBody = () => {
+    if (loading && !refreshing) {
+      return <Loading message="Loading citizen accounts..." fullScreen />;
+    }
 
-      {loading && !refreshing ? (
-        <Loading message="Loading citizen accounts..." fullScreen />
-      ) : error ? (
+    if (error) {
+      return (
         <View style={styles.errorBox}>
           <Text style={styles.errorText}>{error}</Text>
           <TouchableOpacity onPress={fetchUsers} style={styles.retryBtn}>
             <Text style={styles.retryText}>Retry</Text>
           </TouchableOpacity>
         </View>
-      ) : (
-        <FlatList
-          data={users}
-          keyExtractor={(item) => item._id}
-          renderItem={renderItem}
-          contentContainerStyle={styles.listContent}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              colors={[COLORS.secondary]}
-            />
-          }
-          ListEmptyComponent={
-            <EmptyState
-              icon="people-outline"
-              title="No Citizens Registered"
-              description="New citizens will appear here as they register on FixMyStreet."
-            />
-          }
-        />
-      )}
+      );
+    }
+
+    return (
+      <FlatList
+        data={users}
+        keyExtractor={(item) => item._id}
+        renderItem={renderItem}
+        contentContainerStyle={styles.listContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[COLORS.secondary]}
+          />
+        }
+        ListEmptyComponent={
+          <EmptyState
+            icon="people-outline"
+            title="No Citizens Registered"
+            description="New citizens will appear here as they register on FixMyStreet."
+          />
+        }
+      />
+    );
+  };
+
+  return (
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+      <Header
+        title="Registered Citizens"
+        subtitle={`${users.length} active citizens registered`}
+      />
+      {renderBody()}
     </SafeAreaView>
   );
 }

@@ -367,6 +367,11 @@ export default function ReportIssueScreen() {
             {URGENCY_LEVELS.map((u) => {
               const isSelected = requestedUrgency === u.id;
               const isHigh = u.id === 'High';
+              let activeColor = COLORS.textSecondary;
+              if (isSelected) {
+                activeColor = isHigh ? COLORS.danger : COLORS.primary;
+              }
+
               return (
                 <TouchableOpacity
                   key={u.id}
@@ -382,21 +387,12 @@ export default function ReportIssueScreen() {
                     <Ionicons
                       name={isHigh ? 'alert-circle' : 'time-outline'}
                       size={18}
-                      color={
-                        isSelected
-                          ? isHigh
-                            ? COLORS.danger
-                            : COLORS.primary
-                          : COLORS.textSecondary
-                      }
+                      color={activeColor}
                     />
                     <Text
                       style={[
                         styles.urgencyTitle,
-                        isSelected &&
-                          (isHigh
-                            ? { color: COLORS.danger }
-                            : { color: COLORS.primary }),
+                        isSelected && { color: activeColor },
                       ]}
                     >
                       {u.label}

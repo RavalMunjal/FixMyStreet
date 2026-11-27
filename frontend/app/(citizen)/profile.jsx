@@ -22,6 +22,13 @@ import Loading from '../../components/Loading';
 import { userService } from '../../services/api';
 import { COLORS, SPACING, FONT_SIZE, RADIUS } from '../../constants/theme';
 
+const getUserInitials = (name) => {
+  if (!name || !name.trim()) return 'U';
+  const words = name.trim().split(/\s+/);
+  const letters = words.map((word) => word[0]).join('');
+  return letters.toUpperCase().slice(0, 2);
+};
+
 export default function ProfileScreen() {
   const { user, logout, refreshUser } = useAuth();
   const insets = useSafeAreaInsets();
@@ -133,14 +140,7 @@ export default function ProfileScreen() {
         <View style={styles.avatarCard}>
           <View style={styles.avatarCircle}>
             <Text style={styles.avatarInitials}>
-              {user?.name
-                ? user.name
-                    .split(' ')
-                    .map((n) => n[0])
-                    .join('')
-                    .toUpperCase()
-                    .slice(0, 2)
-                : 'U'}
+              {getUserInitials(user?.name)}
             </Text>
           </View>
           <Text style={styles.profileName}>{user?.name || 'Citizen'}</Text>

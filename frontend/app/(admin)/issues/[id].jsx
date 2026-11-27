@@ -38,6 +38,13 @@ try {
   console.warn('react-native-maps unavailable');
 }
 
+const STATUS_BORDER_COLORS = {
+  Reported: COLORS.pending,
+  'Under Review': COLORS.underReview,
+  'In Progress': COLORS.inProgress,
+  Resolved: COLORS.resolved,
+};
+
 export default function AdminIssueReviewScreen() {
   const { id } = useLocalSearchParams();
   const issueId = Array.isArray(id) ? id[0] : id;
@@ -359,12 +366,7 @@ export default function AdminIssueReviewScreen() {
                     style={[
                       styles.statusChoiceBtn,
                       isSelected && styles.statusChoiceBtnSelected,
-                      st === 'Reported' && isSelected && { borderColor: COLORS.pending },
-                      st === 'Under Review' &&
-                        isSelected && { borderColor: COLORS.underReview },
-                      st === 'In Progress' &&
-                        isSelected && { borderColor: COLORS.inProgress },
-                      st === 'Resolved' && isSelected && { borderColor: COLORS.resolved },
+                      isSelected && { borderColor: STATUS_BORDER_COLORS[st] },
                     ]}
                   >
                     <Text
@@ -385,6 +387,10 @@ export default function AdminIssueReviewScreen() {
             <View style={styles.urgencyRow}>
               {['Normal', 'High'].map((u) => {
                 const active = confirmedUrgency === u;
+                const isHigh = u === 'High';
+                const activeColor = isHigh ? COLORS.danger : COLORS.secondary;
+                const activeBg = isHigh ? COLORS.dangerBg : COLORS.secondaryLight;
+
                 return (
                   <TouchableOpacity
                     key={u}
@@ -392,18 +398,13 @@ export default function AdminIssueReviewScreen() {
                     onPress={() => setConfirmedUrgency(u)}
                     style={[
                       styles.urgencyBtn,
-                      active &&
-                        (u === 'High'
-                          ? { borderColor: COLORS.danger, backgroundColor: COLORS.dangerBg }
-                          : { borderColor: COLORS.secondary, backgroundColor: COLORS.secondaryLight }),
+                      active && { borderColor: activeColor, backgroundColor: activeBg },
                     ]}
                   >
                     <Text
                       style={[
                         styles.urgencyBtnText,
-                        active && {
-                          color: u === 'High' ? COLORS.danger : COLORS.secondary,
-                        },
+                        active && { color: activeColor },
                       ]}
                     >
                       {u}

@@ -68,6 +68,36 @@ export default function AdminDashboard() {
     fetchDashboard();
   };
 
+  const renderRecentIssues = () => {
+    if (error) {
+      return (
+        <View style={styles.errorBox}>
+          <Text style={styles.errorText}>{error}</Text>
+        </View>
+      );
+    }
+
+    if (recentIssues.length === 0) {
+      return (
+        <EmptyState
+          icon="checkmark-done-circle-outline"
+          title="No Issues Reported"
+          description="The complaint database is currently clear."
+        />
+      );
+    }
+
+    return recentIssues.map((issue) => (
+      <IssueCard
+        key={issue._id}
+        issue={issue}
+        onPress={() => router.push(`/(admin)/issues/${issue._id}`)}
+        showRequestedUrgency
+        showReporter
+      />
+    ));
+  };
+
   if (loading && !refreshing) {
     return (
       <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
@@ -192,27 +222,7 @@ export default function AdminDashboard() {
           </TouchableOpacity>
         </View>
 
-        {error ? (
-          <View style={styles.errorBox}>
-            <Text style={styles.errorText}>{error}</Text>
-          </View>
-        ) : recentIssues.length === 0 ? (
-          <EmptyState
-            icon="checkmark-done-circle-outline"
-            title="No Issues Reported"
-            description="The complaint database is currently clear."
-          />
-        ) : (
-          recentIssues.map((issue) => (
-            <IssueCard
-              key={issue._id}
-              issue={issue}
-              onPress={() => router.push(`/(admin)/issues/${issue._id}`)}
-              showRequestedUrgency
-              showReporter
-            />
-          ))
-        )}
+        {renderRecentIssues()}
       </ScrollView>
     </SafeAreaView>
   );
